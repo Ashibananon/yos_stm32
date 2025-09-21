@@ -530,6 +530,15 @@ void ymutex_init(struct ymutex *mutex)
 	mutex->owner = _YMUTEX_OWNER_NONE;
 }
 
+void ymutex_deinit(struct ymutex *mutex)
+{
+	if (mutex == NULL) {
+		return;
+	}
+	ymutex_lock(mutex);
+	mutex->owner = _YMUTEX_OWNER_NONE;
+}
+
 void ymutex_lock(struct ymutex *mutex)
 {
 	if (mutex == NULL) {

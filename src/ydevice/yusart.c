@@ -8,12 +8,20 @@
 #include <libopencm3/cm3/cortex.h>
 #include <libopencm3/cm3/nvic.h>
 #include <libopencm3/stm32/gpio.h>
+#include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/usart.h>
 #include <stdio.h>
 #include "yusart.h"
 #include "../../lib/ringbuf/yringbuffer.h"
 
-#define DEFAULT_USART_PORT			USART1
+#define DEFAULT_USART_PORT					USART1
+#define DEFAULT_USART_RCC					RCC_USART1
+#define DEFAULT_USART_GPIO_RCC				RCC_GPIOA
+#define DEFAULT_USART_GPIO_BANK_TX			GPIO_BANK_USART1_TX
+#define DEFAULT_USART_GPIO_BANK_RX			GPIO_BANK_USART1_RX
+#define DEFAULT_USART_GPIO_TX				GPIO_USART1_TX
+#define DEFAULT_USART_GPIO_RX				GPIO_USART1_RX
+#define DEFAULT_USART_NVIC_IRQ				NVIC_USART1_IRQ
 
 static char _yusart_receive_buffer[YUSART_RECEIVE_BUFFER_SIZE_BYTE];
 static struct YRingBuffer _yusart_rx_rb;
@@ -40,12 +48,15 @@ static void yusart_init(uint32_t baudrate, uint8_t stop_bits)
 {
 	cm_disable_interrupts();
 
+	rcc_periph_clock_enable(DEFAULT_USART_GPIO_RCC);
+	rcc_periph_clock_enable(DEFAULT_USART_RCC);
+
 	YRingBufferInit(&_yusart_rx_rb, _yusart_receive_buffer, sizeof(_yusart_receive_buffer));
 
-	gpio_set_mode(GPIO_BANK_USART1_TX, GPIO_MODE_OUTPUT_50_MHZ,
-				GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO_USART1_TX);
-	gpio_set_mode(GPIO_BANK_USART1_RX, GPIO_MODE_INPUT,
-				GPIO_CNF_INPUT_FLOAT, GPIO_USART1_RX);
+	gpio_set_mode(DEFAULT_USART_GPIO_BANK_TX, GPIO_MODE_OUTPUT_50_MHZ,
+				GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, DEFAULT_USART_GPIO_TX);
+	gpio_set_mode(DEFAULT_USART_GPIO_BANK_RX, GPIO_MODE_INPUT,
+				GPIO_CNF_INPUT_FLOAT, DEFAULT_USART_GPIO_RX);
 
 	/* Setup UART parameters. */
 	usart_set_baudrate(DEFAULT_USART_PORT, baudrate);
@@ -56,7 +67,7 @@ static void yusart_init(uint32_t baudrate, uint8_t stop_bits)
 	usart_set_flow_control(DEFAULT_USART_PORT, USART_FLOWCONTROL_NONE);
 
 	yusart_interrupt_enable();
-	nvic_enable_irq(NVIC_USART1_IRQ);
+	nvic_enable_irq(DEFAULT_USART_NVIC_IRQ);
 
 	/* Finally enable the USART. */
 	usart_enable(DEFAULT_USART_PORT);
@@ -100,6 +111,9 @@ static void yusart_deinit(void)
 	nvic_disable_irq(NVIC_USART1_IRQ);
 	yusart_interrupt_disable();
 	YRingBufferDestory(&_yusart_rx_rb);
+
+	rcc_periph_clock_disable(DEFAULT_USART_GPIO_RCC);
+	rcc_periph_clock_disable(DEFAULT_USART_RCC);
 
 	cm_enable_interrupts();
 }

@@ -110,7 +110,6 @@ int user_timer_deinit(void)
 	return 0;
 }
 
-//ISR(TIMER2_OVF_vect)
 void DEFAULT_USER_TIMER_IRS(void)
 {
 	if (timer_get_flag(DEFAULT_USER_TIMER, TIM_SR_CC1IF)) {

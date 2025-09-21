@@ -21,6 +21,20 @@ struct ymutex {
 void ymutex_init(struct ymutex *mutex);
 
 /*
+ * Deinit mutex
+ * Note that this will get the mutex first(means may block the current task)
+ * and then set it invalid unconditionally.
+ * Please make sure the mutex is not used right now
+ * and will not be used any longer before call this function.
+ *
+ * mutexを解放する
+ * この関数はmutexを取得してから無条件に無効にする(取得というのは、当タスクをブロックする可能性があります)
+ * そのため、これを呼び出す前に、mutexは使われていなくて、これからも使われないことを
+ * 確認してください
+ */
+void ymutex_deinit(struct ymutex *mutex);
+
+/*
  * Block until got mutex
  *
  * mutexを取得するまでブロックされます

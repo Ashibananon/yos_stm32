@@ -11,6 +11,10 @@ STM32F103C8T6 MCU
 | --- | --- | --- | --- |
 | PA10/RX | UART Receive  | Serial/USB-Serial module | TX |
 | PA9/TX | UART Transmit | Serial/USB-Serial module | RX |
+| PB6 | IIC SCL | SSD1306 OLED | SCL |
+| | | AHT20 | SCL |
+| PB7 | IIC SDA | SSD1306 OLED | SDA |
+| | | AHT20 | SDA |
 
 ### STM32F103C8T6
 - Max 72 MHz CPU
@@ -48,10 +52,20 @@ STM32F103C8T6 MCU
 
   コマンドライン用USARTのみ
 
+- IIC
+
 ## Others（その他）
 - A cmdline interface
 
   コマンドライン
+
+- SSD1306 oled (3rd library used)
+
+  SSD1306 OLED（第三者ライブラリ利用）
+
+- AHT20 Temperature & Humidity Sensor (3rd library used)
+
+  AHT20温湿度センサー（第三者ライブラリ利用）
 
 # How to use（使い方）
 It is quite easy to use YOS, maybe it will be faster to go and have a look at main()
@@ -84,6 +98,11 @@ At last, yos_start() is called and tasks created are scheduled to run.
 			return -1;
 		}
 
+		if (yiic_master_init(100000) != 0) {
+			basic_io_printf("IIC master init failed\n");
+			return -1;
+		}
+
 		basic_io_printf("-------------\n");
 		basic_io_printf("YOS starts on STM32\n");
 
@@ -92,6 +111,20 @@ At last, yos_start() is called and tasks created are scheduled to run.
 		if (yos_create_task(_cmdline_task, NULL, 1024, "cmdtask") < 0) {
 			return -1;
 		}
+
+	#if (HAS_SSD1306_OLED == 1)
+		if (yos_create_task(_oled_task, NULL, 1024, "oledtak") < 0) {
+			basic_io_printf("Failed to create oled task\n");
+			return -1;
+		}
+	#endif
+
+	#if (HAS_AHT20_SENSOR == 1)
+		if (yos_create_task(_aht20_task, NULL, 1024, "ahttsk") < 0 ) {
+			basic_io_printf("Failed to create aht20 task\n");
+			return -1;
+		}
+	#endif
 
 		yos_start();
 
@@ -230,6 +263,56 @@ Example（例）:
 		000    1     128      72    yosidle
 		001    1    1024     488    cmdtask
 		STM32>
+
+# About OLED（OLEDについて）
+The following infomations are displayed on OLED:
+
+OLEDで下記の情報が表示されます
+
+- YOS OLED
+- UP Time
+
+  起動してから経った時間
+
+- Temperature and humidity
+
+  温湿度
+
+The OLED inverses display every minute.
+
+OLEDの表示は「分（60秒）」毎で色反転になります
+
+# Thanks（感謝）
+The following 3rd libraries are used and let me thanks the authors.
+
+下記の第三者ライブラリを利用しています、著作者方々に感謝の意を表させてください。
+
+- For AHT20(https://github.com/kpierzynski/AVR_aht20)
+
+  is under the folder [lib/AVR_aht20]
+
+  フォルダ[lib/AVR_aht20]に格納します
+
+
+- For SSD1306 OLED(https://github.com/tinusaur/ssd1306xled)
+
+  is under the folder [lib/ssd1306xled]
+
+  フォルダ[lib/ssd1306xled]に格納します
+
+
+## About modifications（ソース修正について）
+It seems that it is difficult to exclude source files of a 3rd-library from building with PlatformIO, and some source files make building errors.
+
+I changed the file name with a suffix of [.org]
+
+PlatformIOを利用していますが、第三者ライブラリの中に指定するソースファイルだけをビルド対象にするのは難しそうです。いくつかのソースファイルのビルドにエラーが出ました。
+
+それらのソースファイル名に「.org」をつけて変更させていただきました。
+
+And to make it better to do with YOS, some source files are modified and some new source files are added.
+
+いくつかの新規ソースファイルも追加させていただきました、YOSの動けるようにするためです。
 
 # Copyright & License
 MIT License
