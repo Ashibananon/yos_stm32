@@ -13,22 +13,24 @@
 #include <stdio.h>
 #include "../yos/common_def.h"
 #include "../yos/ymutex.h"
+#include "../yos/yos.h"
 #include "yiic.h"
 
 #define DEFAULT_IIC							I2C1
 #define DEFAULT_IIC_RCC						RCC_I2C1
+#define DEFAULT_IIC_RCC_RST					RST_I2C1
 #define DEFAULT_IIC_GPIO_RCC				RCC_GPIOB
 #define DEFAULT_IIC_GPIO_BANK				GPIOB
-#define DEFAULT_IIC_GPIO_SCL				GPIO_I2C1_SCL
-#define DEFAULT_IIC_GPIO_SDA				GPIO_I2C1_SDA
-#define DEFAULT_IIC_CLOCK_FREQ_MHZ			36
+#define DEFAULT_IIC_GPIO_SCL				GPIO6
+#define DEFAULT_IIC_GPIO_SDA				GPIO7
+#define DEFAULT_IIC_CLOCK_FREQ_MHZ			(rcc_apb1_frequency / (1000 * 1000))
 
 /*
  * IIC Speed
  * 0:		Standard Speed(~100KHz)
  * 1:		Fast Speed(~400KHz)
  */
-#define DEFAULE_IIC_SPEED					1
+#define DEFAULE_IIC_SPEED					0
 
 static struct ymutex _yiic_mutex;
 
@@ -43,9 +45,11 @@ int yiic_master_init(uint32_t iic_freq)
 	/* Enable clocks for I2C1 */
 	rcc_periph_clock_enable(DEFAULT_IIC_RCC);
 	rcc_periph_clock_enable(DEFAULT_IIC_GPIO_RCC);
-	gpio_set_mode(DEFAULT_IIC_GPIO_BANK, GPIO_MODE_OUTPUT_50_MHZ,
-				GPIO_CNF_OUTPUT_ALTFN_OPENDRAIN,
-				DEFAULT_IIC_GPIO_SCL | DEFAULT_IIC_GPIO_SDA);
+	//rcc_periph_reset_pulse(DEFAULT_IIC_RCC_RST);
+
+	gpio_mode_setup(DEFAULT_IIC_GPIO_BANK, GPIO_MODE_AF,
+				GPIO_PUPD_NONE, DEFAULT_IIC_GPIO_SCL | DEFAULT_IIC_GPIO_SDA);
+	gpio_set_af(DEFAULT_IIC_GPIO_BANK, GPIO_AF4, DEFAULT_IIC_GPIO_SCL | DEFAULT_IIC_GPIO_SDA);
 
 	i2c_peripheral_disable(DEFAULT_IIC);
 
@@ -87,7 +91,10 @@ static uint8_t volatile addr_for_current_trans = 0;
 static enum yiic_master_tr volatile current_tran_type = YIIC_MASTER_TRANSMIT;
 int yiic_master_trans_start(enum yiic_master_tr tran_type)
 {
+	YOS_DBG("Enter yiic_master_trans_start, trans_type=%d\n", tran_type);
+
 	ymutex_lock(&_yiic_mutex);
+	YOS_DBG("_yiic_mutex got\n");
 
 	current_tran_type = tran_type;
 	if (current_tran_type == YIIC_MASTER_TRANSMIT) {
@@ -95,11 +102,16 @@ int yiic_master_trans_start(enum yiic_master_tr tran_type)
 		}
 	}
 
+	YOS_DBG("i2c idle checked, send start\n");
 	i2c_send_start(DEFAULT_IIC);
+	YOS_DBG("i2c start sent\n");
 
 	if (current_tran_type == YIIC_MASTER_RECEIVE) {
 		i2c_enable_ack(DEFAULT_IIC);
+		YOS_DBG("i2c ack enabled\n");
 	}
+
+	YOS_DBG("Leave yiic_master_trans_start\n");
 
 	return 0;
 }

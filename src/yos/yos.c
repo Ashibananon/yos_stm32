@@ -168,7 +168,7 @@ static void _global_timer_stop(void)
 	_global_timer_interrupt_enable(0);
 }
 
-#define YOS_AHB_FREQ_HZ			72000000
+#define YOS_AHB_FREQ_HZ			MCU_MAX_FREQ
 static int _global_timer_init(void)
 {
 	int ret = 0;

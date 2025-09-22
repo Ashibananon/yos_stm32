@@ -20,12 +20,12 @@
 
 
 #define HAS_AHT20_SENSOR		1
-#define HAS_SSD1306_OLED		1
+#define HAS_SSD1306_OLED		0
 
 
 static void system_clock_setup(void)
 {
-	rcc_clock_setup_pll(&rcc_hse_configs[RCC_CLOCK_HSE8_72MHZ]);
+	rcc_clock_setup_pll(&rcc_hsi_configs[RCC_CLOCK_3V3_84MHZ]);
 }
 
 static int _cmdline_task(void *para)
@@ -50,7 +50,9 @@ static void _ath20_event_cb(int8_t temperature, uint8_t humidity, enum AHT20_STA
 
 static int _aht20_task(void *para)
 {
+	basic_io_printf("aht20 task begins\n");
 	aht20_init();
+	basic_io_printf("aht20 init done\n");
 	register_aht20_event_callback(_ath20_event_cb);
 	while (1) {
 		aht20_trigger_measurement();
@@ -58,7 +60,7 @@ static int _aht20_task(void *para)
 		aht20_event();
 
 		yos_task_msleep(1000);
-		//basic_io_printf("aht20 task last read: Temp=%d, Humidity=%d%%\n", _temperature, _humidity);
+		basic_io_printf("aht20 task last read: Temp=%d, Humidity=%d%%\n", _temperature, _humidity);
 	}
 
 	return 0;
@@ -73,10 +75,14 @@ static int _oled_task(void *para)
 	char buf[16];
 	int invert = 0;
 
-	ssd1306_init();
-	ssd1306_clear();
-	yos_ssd1306_puts(YOS_SSD1306_FONT_6X8, 0, 0, "YOS OLED");
+	basic_io_printf("oled task starts\n");
 
+	ssd1306_init();
+	basic_io_printf("oled ssd1306_init done\n");
+	ssd1306_clear();
+	basic_io_printf("oled clear done\n");
+
+	yos_ssd1306_puts(YOS_SSD1306_FONT_6X8, 0, 0, "YOS OLED");
 	while (1) {
 		if (ss == 60) {
 			ss = 0;

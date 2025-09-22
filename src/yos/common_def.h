@@ -12,10 +12,10 @@
 extern "C" {
 #endif
 
-#define MCU_NAME					"STM32F103C8T6"
-#define MCU_MAX_FREQ				(72 * 1000 * 1000)
-#define FLASH_SIZE					(64 * 1024)
-#define SRAM_SIZE					(20 * 1024)
+#define MCU_NAME					"STM32F401RCT6"
+#define MCU_MAX_FREQ				(84 * 1000 * 1000)
+#define FLASH_SIZE					(256 * 1024)
+#define SRAM_SIZE					(64 * 1024)
 
 #ifdef __cplusplus
 }
