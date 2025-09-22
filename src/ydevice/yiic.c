@@ -30,7 +30,7 @@
  * 0:		Standard Speed(~100KHz)
  * 1:		Fast Speed(~400KHz)
  */
-#define DEFAULE_IIC_SPEED					0
+#define DEFAULE_IIC_SPEED					1
 
 static struct ymutex _yiic_mutex;
 
@@ -42,15 +42,18 @@ int yiic_master_init(uint32_t iic_freq)
 	}
 #endif
 
-	/* Enable clocks for I2C1 */
+	/* Enable clocks for GPIO and I2C */
 	rcc_periph_clock_enable(DEFAULT_IIC_RCC);
 	rcc_periph_clock_enable(DEFAULT_IIC_GPIO_RCC);
-	//rcc_periph_reset_pulse(DEFAULT_IIC_RCC_RST);
 
+	/* GPIO setup for SCL and SDA */
+	gpio_set_output_options(DEFAULT_IIC_GPIO_BANK, GPIO_OTYPE_OD,
+				GPIO_OSPEED_50MHZ, DEFAULT_IIC_GPIO_SCL | DEFAULT_IIC_GPIO_SDA);
 	gpio_mode_setup(DEFAULT_IIC_GPIO_BANK, GPIO_MODE_AF,
 				GPIO_PUPD_NONE, DEFAULT_IIC_GPIO_SCL | DEFAULT_IIC_GPIO_SDA);
 	gpio_set_af(DEFAULT_IIC_GPIO_BANK, GPIO_AF4, DEFAULT_IIC_GPIO_SCL | DEFAULT_IIC_GPIO_SDA);
 
+	/* I2C setup */
 	i2c_peripheral_disable(DEFAULT_IIC);
 
 #if (DEFAULE_IIC_SPEED == 0)
@@ -91,10 +94,7 @@ static uint8_t volatile addr_for_current_trans = 0;
 static enum yiic_master_tr volatile current_tran_type = YIIC_MASTER_TRANSMIT;
 int yiic_master_trans_start(enum yiic_master_tr tran_type)
 {
-	YOS_DBG("Enter yiic_master_trans_start, trans_type=%d\n", tran_type);
-
 	ymutex_lock(&_yiic_mutex);
-	YOS_DBG("_yiic_mutex got\n");
 
 	current_tran_type = tran_type;
 	if (current_tran_type == YIIC_MASTER_TRANSMIT) {
@@ -102,16 +102,11 @@ int yiic_master_trans_start(enum yiic_master_tr tran_type)
 		}
 	}
 
-	YOS_DBG("i2c idle checked, send start\n");
 	i2c_send_start(DEFAULT_IIC);
-	YOS_DBG("i2c start sent\n");
 
 	if (current_tran_type == YIIC_MASTER_RECEIVE) {
 		i2c_enable_ack(DEFAULT_IIC);
-		YOS_DBG("i2c ack enabled\n");
 	}
-
-	YOS_DBG("Leave yiic_master_trans_start\n");
 
 	return 0;
 }

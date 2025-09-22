@@ -14,7 +14,7 @@
 extern "C" {
 #endif
 
-#define YOS_DEBUG_MSG_OUTPUT		1
+#define YOS_DEBUG_MSG_OUTPUT		0
 
 #define YOS_RECORD_STACK_USAGE		1
 

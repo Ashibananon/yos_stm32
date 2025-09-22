@@ -20,7 +20,7 @@
 
 
 #define HAS_AHT20_SENSOR		1
-#define HAS_SSD1306_OLED		0
+#define HAS_SSD1306_OLED		1
 
 
 static void system_clock_setup(void)
@@ -60,7 +60,7 @@ static int _aht20_task(void *para)
 		aht20_event();
 
 		yos_task_msleep(1000);
-		basic_io_printf("aht20 task last read: Temp=%d, Humidity=%d%%\n", _temperature, _humidity);
+		//basic_io_printf("aht20 task last read: Temp=%d, Humidity=%d%%\n", _temperature, _humidity);
 	}
 
 	return 0;
