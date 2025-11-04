@@ -4,7 +4,7 @@ I've tried to transport [YOS on ATmega328P](https://github.com/Ashibananon/yos) 
 前に作っている[ATmega328Pで動いているYOS](https://github.com/Ashibananon/yos)をSTM32に移植してみます。
 
 ## Hardware
-STM32F103C8T6 MCU
+STM32F401RCT6 MCU
 
 ### PIN Connection（PIN接続）
 | STM32F103C8T6 PIN | Function（機能） | Connect to Device（接続先） | PIN of connected device（接続先PIN） |
@@ -15,11 +15,16 @@ STM32F103C8T6 MCU
 | | | AHT20 | SCL |
 | PB7 | IIC SDA | SSD1306 OLED | SDA |
 | | | AHT20 | SDA |
+| PA4 | SPI CS | SD Card Module | CS |
+| PA5 | SPI SCK | SD Card Module | CLK |
+| PA6 | SPI MISO | SD Card Module | MOSI |
+| PA7 | SPI MOSI | SD Card Module | MISO |
 
-### STM32F103C8T6
-- Max 72 MHz CPU
-- 20 KB SRAM
-- 64 KB Flash
+### STM32F401RCT6
+- ARM Cortex M4
+- 84 MHz CPU
+- 64 KB SRAM
+- 256 KB Flash
 
 ## Development Environment （開発環境）
 - VS Code with PlatformIO extension
@@ -47,12 +52,21 @@ STM32F103C8T6 MCU
 
   最大8個ユーザー用タイマー
 
-## Hardware Interface Driver（ハードウェア　インタフェース　ドライバー）
-- USART(For cmdline only)
+- YFS
 
-  コマンドライン用USARTのみ
+  A abstract file system, and the interfaces are implemented with FAT and LittleFS
+
+  抽象化層ファイルシステム、インタフェースはFAT、LittleFSに実現しています
+
+## Hardware Interface Driver（ハードウェア　インタフェース　ドライバー）
+- USART
+
+  For cmdline use
+
+  コマンドライン用
 
 - IIC
+- SPI
 
 ## Others（その他）
 - A cmdline interface
@@ -66,6 +80,14 @@ STM32F103C8T6 MCU
 - AHT20 Temperature & Humidity Sensor (3rd library used)
 
   AHT20温湿度センサー（第三者ライブラリ利用）
+
+- SD Card Module (3rd library used)
+
+  SDカードモジュール（第三者ライブラリ利用）
+
+  ** Please notice that the SDSC card seems not supported by the 3rd library, and only one type of SDHC card is confirmed by myself: KIOXIA 16GB
+
+  ※利用している第三者ライブラリの説明によって、SDSCカードは利用できません。今の時点ではたった一つのSDHCカードに動作確認しました：KIOXIA 16GB
 
 # How to use（使い方）
 It is quite easy to use YOS, maybe it will be faster to go and have a look at main()
@@ -182,6 +204,12 @@ Right now the following commands are available:
 
 	入力された内容をアーギュメント配列として表示します（あるいはargc、argvの形で）
 
+- sd
+
+	SD card commands(init, deinit, info, etc)
+
+	SDカード操作用コマンドです(初期化、解除、情報表示など)
+
 - si
 
 	Display some system info
@@ -210,6 +238,66 @@ Right now the following commands are available:
 
 	NAME: Task name（タスク名）
 
+- yfs
+
+	YFS commands(mount, umount, status, etc)
+
+	YFS操作コマンドです(マウント、解除、情報表示など)
+
+- yls
+
+	list files or directories
+
+	ファイルまたフォルダをリストします
+
+- ycat
+
+	display file contents
+
+	ファイル内容を表示します
+
+- yapp
+
+	append data to the end of file
+
+	ファイルにデータを追加します
+
+- ymkdir
+
+	make directory
+
+	フォルダを作成します
+
+- ymv
+
+	move file/directory
+
+	ファイルまたフォルダを移動します
+
+- yrm
+
+	remove file/directory
+
+	ファイルまたフォルダを削除します
+
+- ycp
+
+	copy file
+
+	ファイルをコピーします
+
+- ydd
+
+	copy file data
+
+	ファイルデータをコピーします
+
+- ytouch
+
+	create an empty file
+
+	空ファイルを新規します
+
 - exit
 
 	Exit command line
@@ -224,13 +312,34 @@ Example（例）:
 		STM32 cmdline started.
 		Input [help] to show all available commands,
 		or [exit] to exit STM32 cmdline.
+
+- Command [help]
+
+  コマンド[help]
+
 		STM32> help
 		            help        Show cmd info briefly
 		            echo        Echo cmdline info
+		              sd        SD card cmds
 		              si        Show system info
 		           sleep        Sleep given ms
 		              ts        Show tasks info
+		             yfs        mount yfs
+		             yls        list files of file system
+		            ycat        display file contents
+		            yapp        append data to the end of file
+		          ymkdir        make directory
+		             ymv        move file/directory
+		             yrm        remove file/directory
+		             ycp        copy file
+		             ydd        data copy
+		          ytouch        create an empty file
 		            exit        Exit cmdline
+
+- Command [echo]
+
+  コマンド[echo]
+
 		STM32> echo hello yos on stm32!
 		Echo got 5 paramaters:
 		[ 0]    [echo]
@@ -239,11 +348,37 @@ Example（例）:
 		[ 3]    [on]
 		[ 4]    [stm32!]
 		Last cmd ret: [0]
+
 		STM32> echo "hello yos on stm32!"
 		Echo got 2 paramaters:
 		[ 0]    [echo]
 		[ 1]    [hello yos on stm32!]
 		Last cmd ret: [0]
+
+- Command [sd]
+
+  コマンド[sd]
+
+		STM32> sd init
+		[lib\sd-spi-driver\src\sd_utils.c:43] sd_card_into_idle: CMD0 idle success
+		This is a SDHC card
+		  > Name: "sdcard0"
+		  > Capacity: 14784 MB
+		  > Block size: 512 B
+		  > Erase sector size: 65536 KB
+		init sd OK
+
+		STM32> sd info
+		got sd info:
+		  Type: 3
+		  Sector Size: 512
+		  Sector Number: 30277632
+		  Erase block size: 67108864
+
+- Command [si]
+
+  コマンド[si]
+
 		STM32> si
 		MCU: STM32F103C8T6 Max Freq: 72000000 Hz
 		Flash: 65536 Bytes
@@ -255,13 +390,79 @@ Example（例）:
 		sz float=4
 		sz double=8
 		sz void *=4
+
+- Command [sleep]
+
+  コマンド[sleep]
+
 		STM32> sleep 5000
 		sleep 5000 ms
 		5000 ms slept
+
+- Command [ts]
+
+  コマンド[ts]
+
 		STM32> ts
 		ID    ST      SS     MSS    NAME
 		000    1     128      72    yosidle
 		001    1    1024     488    cmdtask
+
+- Command [yfs]
+
+  [sd init] command must be executed before [yfs start]
+
+  コマンド[yfs]
+
+  [sd init]コマンドを実行してから[yfs start]を行います
+
+		STM32> yfs start
+		[lib\sd-spi-driver\src\sd_utils.c:43] sd_card_into_idle: CMD0 idle success
+		This is a SDHC card
+		  > Name: "sdcard0"
+		  > Capacity: 14784 MB
+		  > Block size: 512 B
+		  > Erase sector size: 65536 KB
+		YFS started OK
+
+		STM32> yfs status
+		YFS status:
+		  type: 0
+		  subtype: 3
+		  block size: 65536
+		  block count: 1890050
+		  block allocated: 32
+		  max filename length: 255
+		  max file size: 0
+		  mount point: /sd
+
+- YFS commands examples
+
+  YFS操作コマンド例
+
+		STM32> yls /sd
+		Files on /sd:
+		T         Size Name
+		-            0 System Volume Information
+		d              TestScripts
+		-        18549 f1
+		-            0 newfile
+
+		STM32> yapp at /sd/hello.txt "Hello YFS World!"
+		yapp: write 16 bytes to file[/sd/hello.txt]
+
+		STM32> yls /sd
+		Files on /sd:
+		T         Size Name
+		-            0 System Volume Information
+		d              TestScripts
+		-        18549 f1
+		-            0 newfile
+		-           16 hello.txt
+
+		STM32> ycat t /sd/hello.txt
+		Hello YFS World!
+
 		STM32>
 
 # About OLED（OLEDについて）
@@ -300,6 +501,17 @@ The following 3rd libraries are used and let me thanks the authors.
 
   フォルダ[lib/ssd1306xled]に格納します
 
+- For FatFS(https://elm-chan.org/fsw/ff/)
+
+  is under the folder [lib/ff16]
+
+  フォルダ[lib/ff16]に格納します
+
+- For SD Card(https://github.com/SouthernSandbox/sd-spi-driver)
+
+  is under the folder [lib/sd-spi-driver]
+
+  フォルダ[lib/sd-spi-driver]に格納します
 
 ## About modifications（ソース修正について）
 It seems that it is difficult to exclude source files of a 3rd-library from building with PlatformIO, and some source files make building errors.

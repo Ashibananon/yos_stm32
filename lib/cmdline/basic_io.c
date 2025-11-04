@@ -135,12 +135,92 @@ int32_t basic_io_write(char *data, uint16_t data_len, int block)
 
 int32_t basic_io_printf(const char *msg, ...)
 {
-	char buf[BASIC_IO_PRINTF_BUFFER_SIZE];
 	va_list ag;
 	va_start(ag, msg);
-	vsnprintf(buf, sizeof(buf), msg, ag);
+	uint32_t ret = basic_io_vprintf(msg, ag);
 	va_end(ag);
+
+	return ret;
+}
+
+int32_t basic_io_vprintf(const char *msg, va_list ag)
+{
+	char buf[BASIC_IO_PRINTF_BUFFER_SIZE];
+	vsnprintf(buf, sizeof(buf), msg, ag);
 	buf[sizeof(buf) - 1] = '\0';
 
 	return basic_io_write(buf, strlen(buf), 1);
+}
+
+uint32_t basic_io_dump_hex(void *data, uint32_t data_len,
+							uint8_t data_per_line, const char *spilter,
+							int dump_to_char, const char *data_char_spliter)
+{
+	uint32_t dumped = 0;
+	if (data == NULL || data_per_line == 0) {
+		goto para_err;
+	}
+
+	int col = 0, line = 0;
+	uint32_t total_line = data_len / data_per_line;
+	uint8_t remaining = data_len % data_per_line;
+	uint8_t current_data;
+	uint8_t left;
+
+	basic_io_printf("Dump %d bytes data from 0x%08X start:\n", data_len, data);
+	for (line = 0; line < total_line; line++) {
+		for (col = 0; col < data_per_line; col++) {
+			current_data = *((uint8_t *)data + line * data_per_line + col);
+			basic_io_printf("%02X", current_data);
+			dumped++;
+			if (spilter != NULL) {
+				basic_io_printf("%s", spilter);
+			}
+		}
+		if (dump_to_char) {
+			if (data_char_spliter != NULL) {
+				basic_io_printf("%s", data_char_spliter);
+			}
+			for (col = 0; col < data_per_line; col++) {
+				current_data = *((uint8_t *)data + line * data_per_line + col);
+				basic_io_printf("%c", can_display_char(current_data) ? current_data : '.');
+				if (spilter != NULL) {
+					basic_io_printf("%s", spilter);
+				}
+			}
+		}
+		basic_io_printf("\n");
+	}
+
+	for (left = 0; left < remaining; left++) {
+		current_data = *((uint8_t *)data + line * data_per_line + col + left);
+		basic_io_printf("%02X", current_data);
+		dumped++;
+		if (spilter != NULL) {
+			basic_io_printf("%s", spilter);
+		}
+	}
+	if (remaining > 0 && dump_to_char) {
+		int spliter_len = spilter != NULL ? strlen(spilter) : 0;
+		int space = (data_per_line - remaining) * (2 + spliter_len);
+		int i;
+		for (i = 0; i < space; i++) {
+			basic_io_printf("%c", BASIC_IO_SPACE_CHAR);
+		}
+		if (data_char_spliter != NULL) {
+			basic_io_printf("%s", data_char_spliter);
+		}
+		for (left = 0; left < remaining; left++) {
+			current_data = *((uint8_t *)data + line * data_per_line + col + left);
+			basic_io_printf("%c", can_display_char(current_data) ? current_data : '.');
+			if (spilter != NULL) {
+				basic_io_printf("%s", spilter);
+			}
+		}
+	}
+	basic_io_printf("\n");
+	basic_io_printf("Dump %d bytes data from 0x%08X end:\n", dumped, data);
+
+para_err:
+	return dumped;
 }

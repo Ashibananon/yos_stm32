@@ -1,0 +1,3 @@
+[submodule "lib/sd-spi-driver"]
+	path = lib/sd-spi-driver
+	url = https://github.com/SouthernSandbox/sd-spi-driver.git

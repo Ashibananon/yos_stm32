@@ -18,7 +18,7 @@ extern "C" {
 
 #define YOS_RECORD_STACK_USAGE		1
 
-#define YOS_TICK_HZ					100
+#define YOS_TICK_HZ					1000
 
 /*
  * Maxium length of a task name, terminating '\0' character included

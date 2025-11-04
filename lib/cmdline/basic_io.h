@@ -18,7 +18,7 @@ extern "C" {
 #endif
 
 #define BASIC_IO_TEXT_END_MARK	'\n'
-
+#define BASIC_IO_SPACE_CHAR		' '
 
 struct basic_io_port_operations {
 	/*
@@ -183,6 +183,11 @@ int32_t basic_io_write(char *data, uint16_t data_len, int block);
 
 #define BASIC_IO_PRINTF_BUFFER_SIZE			256
 int32_t basic_io_printf(const char *msg, ...);
+int32_t basic_io_vprintf(const char *msg, va_list ag);
+
+uint32_t basic_io_dump_hex(void *data, uint32_t data_len,
+						uint8_t data_per_line, const char *spilter,
+						int dump_to_char, const char *data_char_spliter);
 
 #ifdef __cplusplus
 }

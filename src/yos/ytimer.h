@@ -14,20 +14,21 @@
 extern "C" {
 #endif
 
-#define USER_TIMER_MAX_COUNT			8
+#define YTIMER_MAX_COUNT				8
 
-int user_timer_init(void);
-int user_timer_deinit(void);
+#define YTIMER_ID_INVALID				-1
+
+int ytimer_init(void);
+int ytimer_deinit(void);
 
 
-int user_timer_create(uint32_t timeout_ms, int auto_restart,
+int ytimer_create(uint32_t timeout_ms, int auto_restart,
 					void (*on_timeout)(void *para), void *timeout_para);
-int user_timer_pause(int timer_id);
-int user_timer_restore(int timer_id);
-int user_timer_reset(int timer_id, uint32_t timeout_ms);
-uint32_t user_timer_get_remaining_ms(int timer_id);
-int user_timer_destroy(int timer_id);
-
+int ytimer_pause(int timer_id);
+int ytimer_restore(int timer_id);
+int ytimer_reset(int timer_id, uint32_t timeout_ms);
+uint32_t ytimer_get_remaining_ms(int timer_id);
+int ytimer_destroy(int timer_id);
 
 #ifdef __cplusplus
 }

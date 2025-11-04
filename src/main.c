@@ -9,18 +9,11 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "ydevice/yiic.h"
+#include "ydevice/yspi.h"
 #include "ydevice/yusart.h"
 #include "yos/yos.h"
 #include "yos/ytimer.h"
-#include "../lib/AVR_aht20/src/aht20.h"
-#include "../lib/cmdline/basic_io.h"
-#include "../lib/cmdline/cmdline.h"
-#include "../lib/ssd1306xled/ssd1306xled/ssd1306xled.h"
-#include "../lib/ssd1306xled/ssd1306xled/yos_ssd1306_font.h"
-
-
-#define HAS_AHT20_SENSOR		1
-#define HAS_SSD1306_OLED		1
+#include "main_config.h"
 
 
 static void system_clock_setup(void)
@@ -28,6 +21,7 @@ static void system_clock_setup(void)
 	rcc_clock_setup_pll(&rcc_hsi_configs[RCC_CLOCK_3V3_84MHZ]);
 }
 
+#if (HAS_CMDLINE == 1)
 static int _cmdline_task(void *para)
 {
 	while (1) {
@@ -36,6 +30,7 @@ static int _cmdline_task(void *para)
 
 	return 0;
 }
+#endif
 
 #if (HAS_AHT20_SENSOR == 1)
 static int8_t _temperature = 0;
@@ -145,7 +140,7 @@ static int _oled_task(void *para)
 int main(void)
 {
 	system_clock_setup();
-	user_timer_init();
+	ytimer_init();
 
 	if (basic_io_init(yusart_io_operations) != 0) {
 		return -1;
@@ -156,15 +151,22 @@ int main(void)
 		return -1;
 	}
 
+	if (yspi_master_init() != 0) {
+		basic_io_printf("SPI master init failed\n");
+		return -1;
+	}
+
 	basic_io_printf("-------------\n");
 	basic_io_printf("YOS starts on STM32\n");
 
 	yos_init();
 
-	if (yos_create_task(_cmdline_task, NULL, 1024, "cmdtask") < 0) {
+#if (HAS_CMDLINE == 1)
+	if (yos_create_task(_cmdline_task, NULL, 4096, "cmdtask") < 0) {
 		basic_io_printf("Failed to create cmdline task\n");
 		return -1;
 	}
+#endif
 
 #if (HAS_SSD1306_OLED == 1)
 	if (yos_create_task(_oled_task, NULL, 1024, "oledtak") < 0) {

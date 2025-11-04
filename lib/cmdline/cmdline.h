@@ -25,6 +25,9 @@ extern "C" {
 
 #define CMDLINE_OUTPUT_VERBOSE			1
 
+#define CMDLINE_SUPPORT_YFS				1
+
+
 void do_cmdline(void);
 
 
@@ -58,6 +61,8 @@ int is_hex_char(char c, unsigned char *d);
  * 変換して、「c」のポイントしている領域に保存されます
  */
 int is_one_digit_hex(unsigned char hex, char *c);
+
+int can_display_char(char c);
 
 #ifdef __cplusplus
 }

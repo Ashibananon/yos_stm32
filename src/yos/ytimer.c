@@ -20,7 +20,7 @@
 #define DEFAULT_USER_TIMER_RST			RST_TIM4
 #define DEFAULT_USER_TIMER_IRS			tim4_isr
 
-static struct user_timer {
+static struct ytimer {
 	void (*on_timeout)(void *para);
 	void *para;
 	uint32_t remaining_ms;
@@ -28,13 +28,13 @@ static struct user_timer {
 	uint8_t auto_restart;
 	uint8_t is_paused;
 	uint8_t is_used;
-} _user_timer_list[USER_TIMER_MAX_COUNT];
+} _user_timer_list[YTIMER_MAX_COUNT];
 
 static void _user_timer_list_check_in_irq(void)
 {
 	int i = 0;
-	struct user_timer *ut;
-	while (i < USER_TIMER_MAX_COUNT) {
+	struct ytimer *ut;
+	while (i < YTIMER_MAX_COUNT) {
 		ut = _user_timer_list + i;
 		if (ut->is_used) {
 			if (!(ut->is_paused)) {
@@ -72,7 +72,7 @@ static void _user_timer_list_init(void)
 	memset(&_user_timer_list, 0x00, sizeof(_user_timer_list));
 }
 
-int user_timer_init(void)
+int ytimer_init(void)
 {
 	cm_disable_interrupts();
 
@@ -98,7 +98,7 @@ int user_timer_init(void)
 	return 0;
 }
 
-int user_timer_deinit(void)
+int ytimer_deinit(void)
 {
 	cm_disable_interrupts();
 	_user_timer_interrupt_enable(0);
@@ -118,15 +118,15 @@ void DEFAULT_USER_TIMER_IRS(void)
 	}
 }
 
-int user_timer_create(uint32_t timeout_ms, int auto_restart,
+int ytimer_create(uint32_t timeout_ms, int auto_restart,
 	void (*on_timeout)(void *para), void *timeout_para)
 {
-	int timer_id = -1;
+	int timer_id = YTIMER_ID_INVALID;
 	int i = 0;
 
-	struct user_timer *ut;
+	struct ytimer *ut;
 	_user_timer_interrupt_enable(0);
-	while (i < USER_TIMER_MAX_COUNT) {
+	while (i < YTIMER_MAX_COUNT) {
 		ut = _user_timer_list + i;
 		if (!(ut->is_used)) {
 			ut->on_timeout = on_timeout;
@@ -150,11 +150,11 @@ int user_timer_create(uint32_t timeout_ms, int auto_restart,
 
 static int _user_timer_pause_set(int timer_id, uint8_t pause)
 {
-	if (timer_id < 0 || timer_id > USER_TIMER_MAX_COUNT) {
+	if (timer_id < 0 || timer_id > YTIMER_MAX_COUNT) {
 		return -1;
 	}
 
-	struct user_timer *ut;
+	struct ytimer *ut;
 	_user_timer_interrupt_enable(0);
 	ut = _user_timer_list + timer_id;
 	if (ut->is_used) {
@@ -165,23 +165,23 @@ static int _user_timer_pause_set(int timer_id, uint8_t pause)
 	return 0;
 }
 
-int user_timer_pause(int timer_id)
+int ytimer_pause(int timer_id)
 {
 	return _user_timer_pause_set(timer_id, 1);
 }
 
-int user_timer_restore(int timer_id)
+int ytimer_restore(int timer_id)
 {
 	return _user_timer_pause_set(timer_id, 0);
 }
 
-int user_timer_reset(int timer_id, uint32_t timeout_ms)
+int ytimer_reset(int timer_id, uint32_t timeout_ms)
 {
-	if (timer_id < 0 || timer_id > USER_TIMER_MAX_COUNT) {
+	if (timer_id < 0 || timer_id > YTIMER_MAX_COUNT) {
 		return -1;
 	}
 
-	struct user_timer *ut;
+	struct ytimer *ut;
 	_user_timer_interrupt_enable(0);
 	ut = _user_timer_list + timer_id;
 	if (ut->is_used) {
@@ -193,14 +193,14 @@ int user_timer_reset(int timer_id, uint32_t timeout_ms)
 	return 0;
 }
 
-uint32_t user_timer_get_remaining_ms(int timer_id)
+uint32_t ytimer_get_remaining_ms(int timer_id)
 {
-	if (timer_id < 0 || timer_id > USER_TIMER_MAX_COUNT) {
+	if (timer_id < 0 || timer_id > YTIMER_MAX_COUNT) {
 		return 0;
 	}
 
 	uint32_t remaining = 0;
-	struct user_timer *ut;
+	struct ytimer *ut;
 	_user_timer_interrupt_enable(0);
 	ut = _user_timer_list + timer_id;
 	if (ut->is_used) {
@@ -211,13 +211,13 @@ uint32_t user_timer_get_remaining_ms(int timer_id)
 	return remaining;
 }
 
-int user_timer_destroy(int timer_id)
+int ytimer_destroy(int timer_id)
 {
-	if (timer_id < 0 || timer_id > USER_TIMER_MAX_COUNT) {
+	if (timer_id < 0 || timer_id > YTIMER_MAX_COUNT) {
 		return -1;
 	}
 
-	struct user_timer *ut;
+	struct ytimer *ut;
 	_user_timer_interrupt_enable(0);
 	ut = _user_timer_list + timer_id;
 	if (ut->is_used) {
