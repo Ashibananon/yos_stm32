@@ -7,7 +7,7 @@ I've tried to transport [YOS on ATmega328P](https://github.com/Ashibananon/yos) 
 STM32F401RCT6 MCU
 
 ### PIN Connection（PIN接続）
-| STM32F103C8T6 PIN | Function（機能） | Connect to Device（接続先） | PIN of connected device（接続先PIN） |
+| STM32F401RCT6 PIN | Function（機能） | Connect to Device（接続先） | PIN of connected device（接続先PIN） |
 | --- | --- | --- | --- |
 | PA10/RX | UART Receive  | Serial/USB-Serial module | TX |
 | PA9/TX | UART Transmit | Serial/USB-Serial module | RX |
@@ -380,9 +380,9 @@ Example（例）:
   コマンド[si]
 
 		STM32> si
-		MCU: STM32F103C8T6 Max Freq: 72000000 Hz
-		Flash: 65536 Bytes
-		RAM: 20480 Bytes
+		MCU: STM32F401RCT6 Max Freq: 84000000 Hz
+		Flash: 262144 Bytes
+		RAM: 65536 Bytes
 		sz char=1
 		sz short=2
 		sz int=4
