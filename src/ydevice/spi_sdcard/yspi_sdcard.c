@@ -18,7 +18,11 @@
 #define YSDCARD_SPI_CS_GPIO_NUM				GPIO4
 #define YSDCARD_SPI_CS_VALID_VALUE			YSPI_CS_VALID_ON_LOW
 
+#if (DEFAULT_SPI_USE_DMA == 1)
 #define YSDCARD_SPI_SPEED_HIGH				(YSPI_FREQUENCY_MIN * 16)
+#else
+#define YSDCARD_SPI_SPEED_HIGH				(YSPI_FREQUENCY_MIN * 16)
+#endif
 #define YSDCARD_SPI_SPEED_LOW				(YSPI_FREQUENCY_MIN)
 
 #define YSDCARD_CARD_NAME					"sdcard0"
@@ -64,12 +68,14 @@ static int yspi_sd_control(struct sd_card* card, enum sd_user_ctrl ctrl)
 		}
 		break;
 	case Sd_User_Ctrl_Take_Bus:
-		/* Right now sd can always take spi bus */
-		ret = 0;
+		if (yspi_trans_begin(&_sdcard_spi_dev) == 0) {
+			ret = 0;
+		}
 		break;
 	case Sd_User_Ctrl_Release_Bus:
-		/* Right now sd can always take spi bus */
-		ret = 0;
+		if (yspi_trans_end(&_sdcard_spi_dev) == 0) {
+			ret = 0;
+		}
 		break;
 	case Sd_User_Ctrl_Set_Low_Speed:
 		if (yspi_master_set_speed(YSDCARD_SPI_SPEED_LOW) == 0) {
@@ -99,17 +105,18 @@ static int yspi_sd_transfer(struct sd_card* card, struct sd_spi_buf* tx, struct 
 	}
 
 	if (tx != NULL) {
-		//tx->used = yspi_trans_send(tx->data, tx->size);
-		for (tx->used = 0; tx->used < tx->size; tx->used++) {
-			yspi_trans_write_and_read(&_sdcard_spi_dev, *((uint8_t *)tx->data + tx->used));
+		tx->used = yspi_send_and_receive(tx->data, NULL, tx->size, 0xFF);
+		if (tx->used == tx->size) {
+			ret = 0;
 		}
 		YSD_DBG("yspi_sd_transfer: %d bytes sent\n", tx->used);
 		YSD_DBG_DUMP_DATA(tx->data, tx->used);
 	}
 
 	if (rx != NULL) {
-		for (rx->used = 0; rx->used < rx->size; rx->used++) {
-			*((uint8_t *)rx->data + rx->used) = yspi_trans_write_and_read(&_sdcard_spi_dev, 0xFF);
+		rx->used = yspi_send_and_receive(NULL, rx->data, rx->size, 0xFF);
+		if (rx->used == rx->size) {
+			ret = 0;
 		}
 		YSD_DBG("yspi_sd_transfer: %d bytes received\n", rx->used);
 		YSD_DBG_DUMP_DATA(rx->data, rx->used);

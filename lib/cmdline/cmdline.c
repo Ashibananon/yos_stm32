@@ -77,147 +77,6 @@ static int _is_quote_char(char c)
 	return _search_char_in_string(c, CMDLINE_QUOTE_CHARS) >= 0;
 }
 
-int is_hex_char(char c, unsigned char *d)
-{
-	int ret = 1;
-	unsigned char dd;
-	switch (c) {
-	case '0':
-		dd = 0x0;
-		break;
-	case '1':
-		dd = 0x1;
-		break;
-	case '2':
-		dd = 0x2;
-		break;
-	case '3':
-		dd = 0x3;
-		break;
-	case '4':
-		dd = 0x4;
-		break;
-	case '5':
-		dd = 0x5;
-		break;
-	case '6':
-		dd = 0x6;
-		break;
-	case '7':
-		dd = 0x7;
-		break;
-	case '8':
-		dd = 0x8;
-		break;
-	case '9':
-		dd = 0x9;
-		break;
-	case 'a':
-	case 'A':
-		dd = 0xA;
-		break;
-	case 'b':
-	case 'B':
-		dd = 0xB;
-		break;
-	case 'c':
-	case 'C':
-		dd = 0xC;
-		break;
-	case 'd':
-	case 'D':
-		dd = 0xD;
-		break;
-	case 'e':
-	case 'E':
-		dd = 0xE;
-		break;
-	case 'f':
-	case 'F':
-		dd = 0xF;
-		break;
-	default:
-		ret = 0;
-		break;
-	}
-
-	if (d != NULL) {
-		*d = dd;
-	}
-
-	return ret;
-}
-
-int is_one_digit_hex(unsigned char hex, char *c)
-{
-	int ret = 1;
-	char cc = '\0';
-	switch (hex) {
-	case 0x0:
-		cc = '0';
-		break;
-	case 0x1:
-		cc = '1';
-		break;
-	case 0x2:
-		cc = '2';
-		break;
-	case 0x3:
-		cc = '3';
-		break;
-	case 0x4:
-		cc = '4';
-		break;
-	case 0x5:
-		cc = '5';
-		break;
-	case 0x6:
-		cc = '6';
-		break;
-	case 0x7:
-		cc = '7';
-		break;
-	case 0x8:
-		cc = '8';
-		break;
-	case 0x9:
-		cc = '9';
-		break;
-	case 0xA:
-		cc = 'A';
-		break;
-	case 0xB:
-		cc = 'B';
-		break;
-	case 0xC:
-		cc = 'C';
-		break;
-	case 0xD:
-		cc = 'D';
-		break;
-	case 0xE:
-		cc = 'E';
-		break;
-	case 0xF:
-		cc = 'F';
-		break;
-	default:
-		ret = 0;
-		break;
-	}
-
-	if (c != NULL) {
-		*c = cc;
-	}
-
-	return ret;
-}
-
-int can_display_char(char c)
-{
-	return (c >= 0x21 && c <= 0x7E);
-}
-
 static void _make_args(char *cmdline, int *argc, char **argv)
 {
 	if (cmdline == NULL || argc == NULL || argv == NULL) {
@@ -364,16 +223,32 @@ usage:
 
 static int _cmd_sys_info(int argc, char **argv)
 {
-	_cmd_printf("MCU: %s Max Freq: %d Hz\n", MCU_NAME, MCU_MAX_FREQ);
-	_cmd_printf("Flash: %d Bytes\n", FLASH_SIZE);
-	_cmd_printf("RAM: %d Bytes\n", SRAM_SIZE);
-	_cmd_printf("sz char=%d\n", sizeof(char));
-	_cmd_printf("sz short=%d\n", sizeof(short));
-	_cmd_printf("sz int=%d\n", sizeof(int));
-	_cmd_printf("sz long=%d\n", sizeof(long));
-	_cmd_printf("sz float=%d\n", sizeof(float));
-	_cmd_printf("sz double=%d\n", sizeof(double));
-	_cmd_printf("sz void *=%d\n", sizeof(void *));
+	uint32_t chip_id_address = 0x1FFF7A10;
+	char chip_id[12];
+	int i;
+	for (i = 0; i < sizeof(chip_id) / sizeof(chip_id[0]); i++) {
+		*(chip_id + i) = *((char *)chip_id_address + i);
+	}
+
+	uint32_t flash_size_address = 0x1FFF7A22;
+	uint16_t flash_size = *((uint16_t *)flash_size_address);
+
+	_cmd_printf("Chip info:\n");
+	_cmd_printf("  chip id:\n");
+	basic_io_dump_hex(chip_id, sizeof(chip_id), 16, " ", 1, " => ");
+	_cmd_printf("  Flash size reads: %d KB\n", flash_size);
+	_cmd_printf("  MCU: %s Max Freq: %d Hz\n", MCU_NAME, MCU_MAX_FREQ);
+	_cmd_printf("  Flash: %d Bytes\n", FLASH_SIZE);
+	_cmd_printf("  RAM: %d Bytes\n", SRAM_SIZE);
+
+	_cmd_printf("Data info:\n");
+	_cmd_printf("  sz char=%d\n", sizeof(char));
+	_cmd_printf("  sz short=%d\n", sizeof(short));
+	_cmd_printf("  sz int=%d\n", sizeof(int));
+	_cmd_printf("  sz long=%d\n", sizeof(long));
+	_cmd_printf("  sz float=%d\n", sizeof(float));
+	_cmd_printf("  sz double=%d\n", sizeof(double));
+	_cmd_printf("  sz void *=%d\n", sizeof(void *));
 
 	return 0;
 }

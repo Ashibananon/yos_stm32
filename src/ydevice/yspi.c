@@ -12,53 +12,33 @@
 #include <libopencm3/stm32/spi.h>
 #include <stdio.h>
 #include <string.h>
+#include "../yos/yos.h"
 #include "yspi.h"
-
-#define DEFAULT_SPI_USE_DMA				0
-
-#define DEFAULT_SPI_TRAN_WITH_MUTEX		0
 
 #if (DEFAULT_SPI_TRAN_WITH_MUTEX == 1)
 #include "../yos/ymutex.h"
 #endif
 
-/* SPI GPIO Settings */
-#define DEFAULT_SPI						SPI1
-#define DEFAULT_SPI_RCC					RCC_SPI1
-#define DEFAULT_SPI_GPIO_RCC			RCC_GPIOA
-#define DEFAULT_SPI_GPIO_PORT			GPIOA
-#define DEFAULT_SPI_GPIO_SCK			GPIO5
-#define DEFAULT_SPI_GPIO_MISO			GPIO6
-#define DEFAULT_SPI_GPIO_MOSI			GPIO7
-#define DEFAULT_SPI_NVIC_IRQ			NVIC_SPI1_IRQ
-
 #if (DEFAULT_SPI_USE_DMA == 1)
-/* SPI DMA Settings: RX */
-#define DEFAULT_SPI_DMA_RX				DMA2
-#define DEFAULT_SPI_DMA_RX_STREAM		DMA_STREAM2
-#define DEFAULT_SPI_DMA_RX_CHANNEL		DMA_SxCR_CHSEL_3
-#define DEFAULT_SPI_DMA_RX_PERI_ADDR	SPI1_DR
-#define DEFAULT_SPI_DMA_RX_ISR			dma2_stream2_isr
+static int volatile _dma_is_sending;
+static int volatile _dma_send_half;
+static int volatile _dma_send_error;
 
-/* SPI DMA Settings: TX */
-#define DEFAULT_SPI_DMA_TX				DMA2
-#define DEFAULT_SPI_DMA_TX_STREAM		DMA_STREAM3
-#define DEFAULT_SPI_DMA_TX_CHANNEL		DMA_SxCR_CHSEL_3
-#define DEFAULT_SPI_DMA_TX_PERI_ADDR	SPI1_DR
-#define DEFAULT_SPI_DMA_TX_ISR			dma2_stream3_isr
+static int volatile _dma_is_recving;
+static int volatile _dma_recv_half;
+static int volatile _dma_recv_error;
+
+static uint8_t _default_spi_dma_rx_buffer[DEFAULT_SPI_DMA_RX_BUFFER_SIZE];
+static uint8_t _default_spi_dma_tx_buffer[DEFAULT_SPI_DMA_TX_BUFFER_SIZE];
 #endif
-
-/* SPI Settings */
-#define DEFAULT_SPI_BAUDRATE			SPI_CR1_BAUDRATE_FPCLK_DIV_2
-#define DEFAULT_SPI_CPOL				SPI_CR1_CPOL_CLK_TO_0_WHEN_IDLE
-#define DEFAULT_SPI_CPHA				SPI_CR1_CPHA_CLK_TRANSITION_1
-#define DEFAULT_SPI_DATA_FMT			SPI_CR1_DFF_8BIT
-#define DEFAULT_SPI_MSB_LSB_FIRST		SPI_CR1_MSBFIRST
 
 #if (DEFAULT_SPI_TRAN_WITH_MUTEX == 1)
 /* SPI Mutex */
 static struct ymutex _yspi_mutex;
 #endif
+
+static struct yspi_device *volatile _selected_slave = NULL;
+
 
 int yspi_device_init(struct yspi_device *dev, uint32_t gpio_port,
 					uint16_t gpio_num, enum YSPI_CS_VALID_VALUE valid_value,
@@ -162,6 +142,121 @@ para_err:
 	return ret;
 }
 
+#if (DEFAULT_SPI_USE_DMA == 1)
+static void _yspi_start_rx_dma(uint32_t transfer_size)
+{
+	_dma_is_recving = 1;
+	_dma_recv_half = 0;
+	_dma_recv_error = 0;
+	dma_stream_reset(DEFAULT_SPI_DMA_RX ,DEFAULT_SPI_DMA_RX_STREAM);
+	dma_set_peripheral_address(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DEFAULT_SPI_DMA_RX_PERI_ADDR);
+	dma_set_memory_address(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, (uint32_t)_default_spi_dma_rx_buffer);
+	dma_set_number_of_data(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, transfer_size);
+	dma_channel_select(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DEFAULT_SPI_DMA_RX_CHANNEL);
+	dma_set_dma_flow_control(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM);
+	dma_set_priority(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DMA_SxCR_PL_MEDIUM);
+	dma_enable_direct_mode(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM);
+	dma_set_transfer_mode(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DMA_SxCR_DIR_PERIPHERAL_TO_MEM);
+	dma_enable_memory_increment_mode(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM);
+	dma_disable_peripheral_increment_mode(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM);
+	dma_set_memory_size(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DEFAULT_SPI_DMA_RX_MEM_SIZE);
+	dma_set_peripheral_size(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DEFAULT_SPI_DMA_RX_PERI_SIZE);
+	dma_enable_transfer_complete_interrupt(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM);
+	dma_enable_half_transfer_interrupt(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM);
+	dma_enable_transfer_error_interrupt(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM);
+	dma_enable_stream(DEFAULT_SPI_DMA_RX ,DEFAULT_SPI_DMA_RX_STREAM);
+	spi_enable_rx_dma(DEFAULT_SPI);
+}
+
+static int _yspi_wait_rx_dma_done(void)
+{
+	int ret = -1;
+	YSPI_DBG("Enter _yspi_wait_rx_dma_done\n");
+	while (1) {
+		if (_dma_is_recving == 0) {
+			ret = 0;
+			YSPI_DBG("  _dma_is_recving=0\n");
+			break;
+		}
+		if (_dma_recv_half == 1) {
+			YSPI_DBG("  _dma_recv_half=1\n");
+			_dma_recv_half = 0;
+		}
+		if (_dma_recv_error == 1) {
+			YSPI_DBG("  _dma_recv_error=1\n");
+			break;
+		}
+		yos_task_delay(1);
+	}
+	YSPI_DBG("  dma recving done\n");
+	spi_disable_rx_dma(DEFAULT_SPI);
+	dma_disable_stream(DEFAULT_SPI_DMA_RX ,DEFAULT_SPI_DMA_RX_STREAM);
+	YSPI_DBG("Leave _yspi_wait_rx_dma_done, ret=%d\n", ret);
+
+	return ret;
+}
+
+static void _yspi_start_tx_dma(uint32_t transfer_size)
+{
+	_dma_is_sending = 1;
+	_dma_send_half = 0;
+	_dma_send_error = 0;
+	dma_stream_reset(DEFAULT_SPI_DMA_TX ,DEFAULT_SPI_DMA_TX_STREAM);
+	dma_set_peripheral_address(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DEFAULT_SPI_DMA_TX_PERI_ADDR);
+	dma_set_memory_address(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, (uint32_t)_default_spi_dma_tx_buffer);
+	dma_set_number_of_data(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, transfer_size);
+	dma_channel_select(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DEFAULT_SPI_DMA_TX_CHANNEL);
+	dma_set_dma_flow_control(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM);
+	dma_set_priority(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DMA_SxCR_PL_MEDIUM);
+	dma_enable_direct_mode(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM);
+	dma_set_transfer_mode(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DMA_SxCR_DIR_MEM_TO_PERIPHERAL);
+	dma_enable_memory_increment_mode(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM);
+	dma_disable_peripheral_increment_mode(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM);
+	dma_set_memory_size(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DEFAULT_SPI_DMA_TX_MEM_SIZE);
+	dma_set_peripheral_size(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DEFAULT_SPI_DMA_TX_PERI_SIZE);
+	dma_enable_transfer_complete_interrupt(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM);
+	dma_enable_half_transfer_interrupt(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM);
+	dma_enable_transfer_error_interrupt(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM);
+	dma_enable_stream(DEFAULT_SPI_DMA_TX ,DEFAULT_SPI_DMA_TX_STREAM);
+	spi_enable_tx_dma(DEFAULT_SPI);
+}
+
+static int _yspi_wait_tx_dma_done(void)
+{
+	int ret = -1;
+	YSPI_DBG("Enter _yspi_wait_tx_dma_done\n");
+	while (1) {
+		if (_dma_is_sending == 0) {
+			ret = 0;
+			YSPI_DBG("  _dma_is_sending=0\n");
+			break;
+		}
+		if (_dma_send_half == 1) {
+			YSPI_DBG("  _dma_send_half=1\n");
+			_dma_send_half = 0;
+		}
+		if (_dma_send_error == 1) {
+			YSPI_DBG("  _dma_send_error=1\n");
+			break;
+		}
+		yos_task_delay(1);
+	}
+	YSPI_DBG("  dma sending done\n");
+	while (!(SPI_SR(DEFAULT_SPI) & SPI_SR_TXE)) {
+		yos_task_delay(1);
+	}
+	YSPI_DBG("  TXE=1\n");
+	while ((SPI_SR(DEFAULT_SPI) & SPI_SR_BSY)) {
+		yos_task_delay(1);
+	}
+	YSPI_DBG("  BSY=0\n");
+	spi_disable_tx_dma(DEFAULT_SPI);
+	dma_disable_stream(DEFAULT_SPI_DMA_TX ,DEFAULT_SPI_DMA_TX_STREAM);
+	YSPI_DBG("Leave _yspi_wait_tx_dma_done, ret=%d\n", ret);
+
+	return ret;
+}
+#endif
 
 int yspi_master_init(void)
 {
@@ -169,6 +264,24 @@ int yspi_master_init(void)
 
 	rcc_periph_clock_enable(DEFAULT_SPI_RCC);
 	rcc_periph_clock_enable(DEFAULT_SPI_GPIO_RCC);
+
+#if (DEFAULT_SPI_USE_DMA == 1)
+	rcc_periph_clock_enable(DEFAULT_SPI_DMA_RCC);
+	//rcc_periph_clock_enable(DEFAULT_SPI_DMAD_RCC);
+
+	/* Set RX DMA */
+	//nvic_set_priority(DEFAULT_SPI_DMA_RX_NVIC_IRQ, 0);
+	nvic_enable_irq(DEFAULT_SPI_DMA_RX_NVIC_IRQ);
+	//dma_disable_stream(DEFAULT_SPI_DMA_RX ,DEFAULT_SPI_DMA_RX_STREAM);
+
+	/* Set TX DMA */
+	//nvic_set_priority(DEFAULT_SPI_DMA_TX_NVIC_IRQ, 0);
+	nvic_enable_irq(DEFAULT_SPI_DMA_TX_NVIC_IRQ);
+	//dma_disable_stream(DEFAULT_SPI_DMA_TX ,DEFAULT_SPI_DMA_TX_STREAM);
+
+	_dma_is_sending = 0;
+	_dma_is_recving = 0;
+#endif
 
 	gpio_mode_setup(DEFAULT_SPI_GPIO_PORT, GPIO_MODE_AF,
 					GPIO_PUPD_NONE, DEFAULT_SPI_GPIO_SCK | DEFAULT_SPI_GPIO_MOSI | DEFAULT_SPI_GPIO_MISO);
@@ -178,17 +291,6 @@ int yspi_master_init(void)
 
 	gpio_set_af(DEFAULT_SPI_GPIO_PORT, GPIO_AF5,
 				DEFAULT_SPI_GPIO_SCK | DEFAULT_SPI_GPIO_MOSI | DEFAULT_SPI_GPIO_MISO);
-
-	//spi_enable(DEFAULT_SPI);
-	//nvic_enable_irq(DEFAULT_SPI_NVIC_IRQ);
-
-#if (DEFAULT_SPI_USE_DMA == 1)
-	spi_enable_rx_dma(DEFAULT_SPI);
-	dma_disable_stream(DEFAULT_SPI_DMA_RX ,DEFAULT_SPI_DMA_RX_STREAM);
-
-	spi_enable_tx_dma(DEFAULT_SPI);
-	dma_disable_stream(DEFAULT_SPI_DMA_TX ,DEFAULT_SPI_DMA_TX_STREAM);
-#endif
 
 #if (DEFAULT_SPI_TRAN_WITH_MUTEX == 1)
 	ymutex_init(&_yspi_mutex);
@@ -205,12 +307,16 @@ int yspi_master_init(void)
 	spi_enable_software_slave_management(DEFAULT_SPI);
 	spi_set_nss_high(DEFAULT_SPI);
 
-	nvic_enable_irq(DEFAULT_SPI_NVIC_IRQ);
+	//nvic_enable_irq(DEFAULT_SPI_NVIC_IRQ);
 	spi_enable(DEFAULT_SPI);
 
 	ret = 0;
 
+	return ret;
+
 master_init_err:
+	yspi_master_deinit();
+
 	return ret;
 }
 
@@ -225,6 +331,11 @@ int yspi_master_deinit(void)
 #if (DEFAULT_SPI_USE_DMA == 1)
 	spi_disable_rx_dma(DEFAULT_SPI);
 	spi_disable_tx_dma(DEFAULT_SPI);
+	dma_disable_stream(DEFAULT_SPI_DMA_RX ,DEFAULT_SPI_DMA_RX_STREAM);
+	dma_disable_stream(DEFAULT_SPI_DMA_TX ,DEFAULT_SPI_DMA_TX_STREAM);
+	nvic_disable_irq(DEFAULT_SPI_DMA_RX_NVIC_IRQ);
+	nvic_disable_irq(DEFAULT_SPI_DMA_TX_NVIC_IRQ);
+	rcc_periph_clock_disable(DEFAULT_SPI_DMA_RCC);
 #endif
 
 	spi_disable(DEFAULT_SPI);
@@ -262,7 +373,6 @@ int yspi_master_set_speed(uint32_t freq)
 	return 0;
 }
 
-static struct yspi_device *volatile current_device = NULL;
 int yspi_trans_begin(struct yspi_device *cs)
 {
 	int ret = -1;
@@ -283,7 +393,7 @@ int yspi_trans_begin(struct yspi_device *cs)
 	}
 
 	cs->is_in_transaction = 1;
-	current_device = cs;
+	_selected_slave = cs;
 
 	ret = 0;
 
@@ -321,7 +431,7 @@ int yspi_trans_end(struct yspi_device *cs)
 	}
 
 	cs->is_in_transaction = 0;
-	current_device = NULL;
+	_selected_slave = NULL;
 
 #if (DEFAULT_SPI_TRAN_WITH_MUTEX == 1)
 	if (ymutex_unlock(&_yspi_mutex) == 0) {
@@ -340,7 +450,7 @@ para_err:
 	return ret;
 }
 
-uint32_t yspi_trans_send(void *data, uint32_t data_len)
+static uint32_t _yspi_send_once(void *data, uint32_t data_len)
 {
 	uint32_t bytes_sent = 0;
 	if (data == NULL || data_len == 0) {
@@ -348,19 +458,20 @@ uint32_t yspi_trans_send(void *data, uint32_t data_len)
 	}
 
 #if (DEFAULT_SPI_USE_DMA == 1)
-	dma_disable_stream(DEFAULT_SPI_DMA_TX ,DEFAULT_SPI_DMA_TX_STREAM);
-	dma_channel_select(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DEFAULT_SPI_DMA_TX_CHANNEL);
-	dma_set_transfer_mode(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DMA_SxCR_DIR_MEM_TO_PERIPHERAL);
-	dma_set_dma_flow_control(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM);
-	dma_set_memory_address(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, data);
-	dma_set_memory_size(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DMA_SxCR_MSIZE_8BIT);
-	dma_set_number_of_data(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, data_len);
-	dma_enable_memory_increment_mode(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM);
-	dma_set_peripheral_address(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DEFAULT_SPI_DMA_TX_PERI_ADDR);
-	dma_enable_fifo_mode(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM);
-	dma_enable_transfer_complete_interrupt(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM);
+	uint32_t send_size;
+	if (data_len > sizeof(_default_spi_dma_tx_buffer)) {
+		send_size = sizeof(_default_spi_dma_tx_buffer);
+		YSPI_DBG("yspi_send: data len[%d] exceeds buffer size[%d]\n",
+				data_len, sizeof(_default_spi_dma_tx_buffer));
+	} else {
+		send_size = data_len;
+	}
 
-	dma_enable_stream(DEFAULT_SPI_DMA_TX ,DEFAULT_SPI_DMA_TX_STREAM);
+	memcpy(_default_spi_dma_tx_buffer, data, send_size);
+	_yspi_start_tx_dma(send_size);
+	if (_yspi_wait_tx_dma_done() == 0) {
+		bytes_sent = send_size;
+	}
 #else
 	while (bytes_sent < data_len) {
 		spi_send(DEFAULT_SPI, (uint16_t)(*((uint8_t *)data + bytes_sent)));
@@ -372,7 +483,31 @@ para_err:
 	return bytes_sent;
 }
 
-uint32_t yspi_trans_receive(void *buf, uint32_t buf_len)
+uint32_t yspi_send(void *data, uint32_t data_len)
+{
+	YSPI_DBG("Enter yspi_send(data=0x%08X, len=%d)\n", data, data_len);
+	uint32_t bytes_sent = 0;
+	uint32_t byte_sent_once;
+	if (data == NULL || data_len == 0) {
+		goto para_err;
+	}
+
+	while (bytes_sent < data_len) {
+		byte_sent_once = _yspi_send_once((uint8_t *)data + bytes_sent, data_len - bytes_sent);
+		if (byte_sent_once > 0) {
+			bytes_sent += byte_sent_once;
+		} else {
+			goto send_err;
+		}
+	}
+
+send_err:
+para_err:
+	YSPI_DBG("Leave yspi_send ret=%d\n", bytes_sent);
+	return bytes_sent;
+}
+
+static uint32_t _yspi_receive_once(void *buf, uint32_t buf_len)
 {
 	uint32_t bytes_received = 0;
 	if (buf == NULL || buf_len == 0) {
@@ -380,19 +515,20 @@ uint32_t yspi_trans_receive(void *buf, uint32_t buf_len)
 	}
 
 #if (DEFAULT_SPI_USE_DMA == 1)
-	dma_disable_stream(DEFAULT_SPI_DMA_RX ,DEFAULT_SPI_DMA_RX_STREAM);
-	dma_channel_select(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DEFAULT_SPI_DMA_RX_CHANNEL);
-	dma_set_transfer_mode(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DMA_SxCR_DIR_PERIPHERAL_TO_MEM);
-	dma_set_dma_flow_control(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM);
-	dma_set_memory_address(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, buf);
-	dma_set_memory_size(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DMA_SxCR_MSIZE_8BIT);
-	dma_set_number_of_data(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, buf_len);
-	dma_enable_memory_increment_mode(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM);
-	dma_set_peripheral_address(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DEFAULT_SPI_DMA_RX_PERI_ADDR);
-	dma_enable_fifo_mode(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM);
-	dma_enable_transfer_complete_interrupt(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM);
+	uint32_t recv_size;
+	if (buf_len > sizeof(_default_spi_dma_rx_buffer)) {
+		recv_size = sizeof(_default_spi_dma_rx_buffer);
+		YSPI_DBG("yspi_receive: data len[%d] exceeds buffer size[%d]\n",
+				buf_len, sizeof(_default_spi_dma_rx_buffer));
+	} else {
+		recv_size = buf_len;
+	}
 
-	dma_enable_stream(DEFAULT_SPI_DMA_RX ,DEFAULT_SPI_DMA_RX_STREAM);
+	_yspi_start_rx_dma(recv_size);
+	if (_yspi_wait_rx_dma_done() == 0) {
+		memcpy(buf, _default_spi_dma_rx_buffer, recv_size);
+		bytes_received = recv_size;
+	}
 #else
 	while (bytes_received < buf_len) {
 		*((uint8_t *)buf + bytes_received) = (uint8_t)spi_read(DEFAULT_SPI);
@@ -404,35 +540,130 @@ para_err:
 	return bytes_received;
 }
 
-uint8_t yspi_trans_write_and_read(struct yspi_device *cs, uint8_t data)
+uint32_t yspi_receive(void *buf, uint32_t buf_len)
 {
-	return spi_xfer(DEFAULT_SPI, data);
-	//spi_send(DEFAULT_SPI, data);
-	//return spi_read(DEFAULT_SPI);
-
-#if 0
-	uint8_t d = 0xFF;
-	if (yspi_trans_send(&data, sizeof(data)) != sizeof(data)) {
-		goto send_err;
+	YSPI_DBG("Enter yspi_receive(buf=0x%08X, len=%d)\n", buf, buf_len);
+	uint32_t bytes_recved = 0;
+	uint32_t byte_recv_once;
+	if (buf == NULL || buf_len == 0) {
+		goto para_err;
 	}
-	if (yspi_trans_receive(&d, sizeof(d)) != sizeof(d)) {
-		goto recv_err;
+
+	while (bytes_recved < buf_len) {
+		byte_recv_once = _yspi_receive_once((uint8_t *)buf + bytes_recved, buf_len - bytes_recved);
+		if (byte_recv_once > 0) {
+			bytes_recved += byte_recv_once;
+		} else {
+			goto recv_err;
+		}
 	}
 
 recv_err:
-send_err:
-	return d;
-#endif
+para_err:
+	YSPI_DBG("Leave yspi_receive, ret=%d\n", bytes_recved);
+	return bytes_recved;
 }
 
-uint8_t yspi_write_and_read(struct yspi_device *cs, uint8_t data)
+static uint32_t _yspi_send_and_receive_once(void *send_data, void *recv_buf, uint32_t data_len, uint8_t send_byte_filler)
+{
+	uint32_t bytes_transfered = 0;
+	YSPI_DBG("Enter _yspi_send_and_receive_once, send_data=0x%08X, recv_buf=0x%08X, length=%d, fill byte=0x%02X\n",
+			send_data, recv_buf, data_len, send_byte_filler);
+	if ((send_data == NULL && recv_buf == NULL) || data_len == 0) {
+		goto para_err;
+	}
+
+#if (DEFAULT_SPI_USE_DMA == 1)
+	uint32_t real_bytes;
+	if (sizeof(_default_spi_dma_tx_buffer) != sizeof(_default_spi_dma_rx_buffer)) {
+		goto buffer_err;
+	}
+	if (data_len > sizeof(_default_spi_dma_tx_buffer)) {
+		real_bytes = sizeof(_default_spi_dma_tx_buffer);
+		YSPI_DBG("yspi_send_and_receive: data len[%d] exceeds buffer size[%d]\n",
+				data_len, sizeof(_default_spi_dma_tx_buffer));
+	} else {
+		real_bytes = data_len;
+	}
+
+	if (send_data != NULL) {
+		memcpy(_default_spi_dma_tx_buffer, send_data, real_bytes);
+	} else {
+		memset(_default_spi_dma_tx_buffer, send_byte_filler, real_bytes);
+	}
+
+	_yspi_start_rx_dma(real_bytes);
+	_yspi_start_tx_dma(real_bytes);
+	if (_yspi_wait_rx_dma_done() == 0 && _yspi_wait_tx_dma_done() == 0) {
+		if (recv_buf != NULL) {
+			memcpy(recv_buf, _default_spi_dma_rx_buffer, real_bytes);
+		}
+
+		bytes_transfered = real_bytes;
+	}
+#else
+	uint8_t send_byte, recv_byte;
+	for (bytes_transfered = 0; bytes_transfered < data_len; bytes_transfered++) {
+		if (send_data == NULL) {
+			send_byte = send_byte_filler;
+		} else {
+			send_byte = *((uint8_t *)send_data + bytes_transfered);
+		}
+		recv_byte = yspi_write_and_read_byte(send_byte);
+		if (recv_buf != NULL) {
+			*((uint8_t *)recv_buf + bytes_transfered) = recv_byte;
+		}
+	}
+#endif
+
+#if (DEFAULT_SPI_USE_DMA == 1)
+buffer_err:
+#endif
+para_err:
+	YSPI_DBG("Leave _yspi_send_and_receive_once, bytes transfered=%d\n", bytes_transfered);
+
+	return bytes_transfered;
+}
+
+
+uint32_t yspi_send_and_receive(void *send_data, void *recv_buf, uint32_t data_len, uint8_t send_byte_filler)
+{
+	uint32_t bytes_xfered = 0;
+	uint32_t bytes_xfered_once;
+	if (send_data == NULL && recv_buf == NULL) {
+		goto para_err;
+	}
+	while (bytes_xfered < data_len) {
+		bytes_xfered_once = _yspi_send_and_receive_once((uint8_t *)send_data + bytes_xfered,
+														(uint8_t *)recv_buf + bytes_xfered,
+														data_len - bytes_xfered,
+														send_byte_filler);
+		if (bytes_xfered_once > 0) {
+			bytes_xfered += bytes_xfered_once;
+		} else {
+			goto transfer_err;
+		}
+	}
+
+transfer_err:
+para_err:
+	return bytes_xfered;
+}
+
+
+uint8_t yspi_write_and_read_byte(uint8_t data)
+{
+	return spi_xfer(DEFAULT_SPI, data);
+}
+
+uint8_t yspi_trans_write_and_read_byte(struct yspi_device *cs, uint8_t data)
 {
 	uint8_t d = 0xFF;
 	if (yspi_trans_begin(cs) != 0) {
 		goto tran_err;
 	}
 
-	d = yspi_trans_write_and_read(cs, data);
+	d = yspi_write_and_read_byte(data);
 
 	yspi_trans_end(cs);
 
@@ -440,48 +671,62 @@ tran_err:
 	return d;
 }
 
+
+//void DEFAULT_SPI_ISR_FUNC(void)
+//{
+//}
+
 #if (DEFAULT_SPI_USE_DMA == 1)
 void DEFAULT_SPI_DMA_RX_ISR(void)
 {
 	if (dma_get_interrupt_flag(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DMA_TCIF)) {
 		/* Transfer complete */
+		dma_disable_transfer_complete_interrupt(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM);
 		dma_clear_interrupt_flags(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DMA_TCIF);
-		dma_disable_stream(DEFAULT_SPI_DMA_RX ,DEFAULT_SPI_DMA_RX_STREAM);
 
-		if (current_device != NULL && current_device->on_event != NULL) {
-			current_device->on_event(YSPI_DEVICE_EVENT_RX_COMPLETE);
+		_dma_is_recving = 0;
+		if (_selected_slave != NULL && _selected_slave->on_event != NULL) {
+			_selected_slave->on_event(YSPI_DEVICE_EVENT_RX_COMPLETE);
 		}
 	} else if (dma_get_interrupt_flag(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DMA_HTIF)) {
 		/* Half transferred */
+		dma_disable_half_transfer_interrupt(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM);
 		dma_clear_interrupt_flags(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DMA_HTIF);
-		if (current_device != NULL && current_device->on_event != NULL) {
-			current_device->on_event(YSPI_DEVICE_EVENT_RX_HALF_TRANSFERED);
+
+		_dma_recv_half = 1;
+		if (_selected_slave != NULL && _selected_slave->on_event != NULL) {
+			_selected_slave->on_event(YSPI_DEVICE_EVENT_RX_HALF_TRANSFERED);
 		}
 	} else if (dma_get_interrupt_flag(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DMA_TEIF)) {
 		/* Transfer error */
+		dma_disable_transfer_error_interrupt(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM);
 		dma_clear_interrupt_flags(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DMA_TEIF);
-		dma_disable_stream(DEFAULT_SPI_DMA_RX ,DEFAULT_SPI_DMA_RX_STREAM);
 
-		if (current_device != NULL && current_device->on_event != NULL) {
-			current_device->on_event(YSPI_DEVICE_EVENT_RX_ERROR);
+		_dma_recv_error = 1;
+		if (_selected_slave != NULL && _selected_slave->on_event != NULL) {
+			_selected_slave->on_event(YSPI_DEVICE_EVENT_RX_ERROR);
 		}
+#if 0
 	} else if (dma_get_interrupt_flag(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DMA_DMEIF)) {
 		/* Direct mode error */
 		dma_clear_interrupt_flags(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DMA_DMEIF);
 		dma_disable_stream(DEFAULT_SPI_DMA_RX ,DEFAULT_SPI_DMA_RX_STREAM);
+		_dma_is_recving = 0;
 
-		if (current_device != NULL && current_device->on_event != NULL) {
-			current_device->on_event(YSPI_DEVICE_EVENT_RX_DIRECT_ERROR);
+		if (_selected_slave != NULL && _selected_slave->on_event != NULL) {
+			_selected_slave->on_event(YSPI_DEVICE_EVENT_RX_DIRECT_ERROR);
 		}
 	} else if (dma_get_interrupt_flag(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DMA_FEIF)) {
 		/* FIFO error */
 		dma_clear_interrupt_flags(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DMA_FEIF);
 		dma_disable_stream(DEFAULT_SPI_DMA_RX ,DEFAULT_SPI_DMA_RX_STREAM);
+		_dma_is_recving = 0;
 
-		if (current_device != NULL && current_device->on_event != NULL) {
-			current_device->on_event(YSPI_DEVICE_EVENT_RX_FIFO_ERROR);
+		if (_selected_slave != NULL && _selected_slave->on_event != NULL) {
+			_selected_slave->on_event(YSPI_DEVICE_EVENT_RX_FIFO_ERROR);
 		}
 	} else {
+#endif
 	}
 }
 
@@ -489,43 +734,52 @@ void DEFAULT_SPI_DMA_TX_ISR(void)
 {
 	if (dma_get_interrupt_flag(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DMA_TCIF)) {
 		/* Transfer complete */
+		dma_disable_transfer_complete_interrupt(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM);
 		dma_clear_interrupt_flags(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DMA_TCIF);
-		dma_disable_stream(DEFAULT_SPI_DMA_TX ,DEFAULT_SPI_DMA_TX_STREAM);
 
-		if (current_device != NULL && current_device->on_event != NULL) {
-			current_device->on_event(YSPI_DEVICE_EVENT_TX_COMPLETE);
+		_dma_is_sending = 0;
+		if (_selected_slave != NULL && _selected_slave->on_event != NULL) {
+			_selected_slave->on_event(YSPI_DEVICE_EVENT_TX_COMPLETE);
 		}
 	} else if (dma_get_interrupt_flag(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DMA_HTIF)) {
 		/* Half transferred */
+		dma_disable_half_transfer_interrupt(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM);
 		dma_clear_interrupt_flags(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DMA_HTIF);
-		if (current_device != NULL && current_device->on_event != NULL) {
-			current_device->on_event(YSPI_DEVICE_EVENT_TX_HALF_TRANSFERED);
+
+		_dma_send_half = 1;
+		if (_selected_slave != NULL && _selected_slave->on_event != NULL) {
+			_selected_slave->on_event(YSPI_DEVICE_EVENT_TX_HALF_TRANSFERED);
 		}
 	} else if (dma_get_interrupt_flag(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DMA_TEIF)) {
 		/* Transfer error */
+		dma_disable_transfer_error_interrupt(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM);
 		dma_clear_interrupt_flags(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DMA_TEIF);
-		dma_disable_stream(DEFAULT_SPI_DMA_TX ,DEFAULT_SPI_DMA_TX_STREAM);
 
-		if (current_device != NULL && current_device->on_event != NULL) {
-			current_device->on_event(YSPI_DEVICE_EVENT_TX_ERROR);
+		_dma_send_error = 1;
+		if (_selected_slave != NULL && _selected_slave->on_event != NULL) {
+			_selected_slave->on_event(YSPI_DEVICE_EVENT_TX_ERROR);
 		}
+#if 0
 	} else if (dma_get_interrupt_flag(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DMA_DMEIF)) {
 		/* Direct mode error */
 		dma_clear_interrupt_flags(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DMA_DMEIF);
 		dma_disable_stream(DEFAULT_SPI_DMA_TX ,DEFAULT_SPI_DMA_TX_STREAM);
+		_dma_is_sending = 0;
 
-		if (current_device != NULL && current_device->on_event != NULL) {
-			current_device->on_event(YSPI_DEVICE_EVENT_TX_DIRECT_ERROR);
+		if (_selected_slave != NULL && _selected_slave->on_event != NULL) {
+			_selected_slave->on_event(YSPI_DEVICE_EVENT_TX_DIRECT_ERROR);
 		}
 	} else if (dma_get_interrupt_flag(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DMA_FEIF)) {
 		/* FIFO error */
 		dma_clear_interrupt_flags(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DMA_FEIF);
 		dma_disable_stream(DEFAULT_SPI_DMA_TX ,DEFAULT_SPI_DMA_TX_STREAM);
+		_dma_is_sending = 0;
 
-		if (current_device != NULL && current_device->on_event != NULL) {
-			current_device->on_event(YSPI_DEVICE_EVENT_TX_FIFO_ERROR);
+		if (_selected_slave != NULL && _selected_slave->on_event != NULL) {
+			_selected_slave->on_event(YSPI_DEVICE_EVENT_TX_FIFO_ERROR);
 		}
 	} else {
+#endif
 	}
 }
 #endif

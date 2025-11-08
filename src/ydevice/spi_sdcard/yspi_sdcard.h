@@ -16,6 +16,7 @@ extern "C" {
 #define YOS_SD_LIBRARY_MSG_OUTPUT	1
 
 #include <stdint.h>
+#include "../../lib/cmdline/basic_io.h"
 
 struct ysdcard_info {
 	uint8_t type;
@@ -34,7 +35,6 @@ int ysdcard_write(uint32_t sector, uint32_t offset, uint8_t *data, uint32_t writ
 
 
 #if (YOS_SD_DEBUG_MSG_OUTPUT == 1)
-#include "../../lib/cmdline/basic_io.h"
 #define YSD_DBG(...)						basic_io_printf("[YSD]"__VA_ARGS__)
 #define YSD_DBG_DUMP_DATA(data, len)		basic_io_dump_hex(data, len, 16, " ", 1, " => ");
 #else
