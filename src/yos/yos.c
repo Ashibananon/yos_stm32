@@ -419,19 +419,38 @@ void yos_start(void)
 
 	_yos_init_task_stack(_CURRENT_TASK_ID, _CURRENT_TASK);
 
+	uint32_t stack_top_address = YOS_SRAM_END_ADDRESS;
+
+	__asm__ __volatile__ (
+		"ldr r0, %0								\n\t"
+		"msr msp, r0							\n\t"
+		"mov r0, #0								\n\t"
+		"msr control, r0						\n\t"
+		"dsb									\n\t"
+		"isb									\n\t"
+		:
+		: "m"(stack_top_address)
+		:
+	);
+
 	__asm__ __volatile__ (
 		"ldr r0, %0								\n\t"
 		:
 		: "m"(_CURRENT_TASK->sp)
 		:
 	);
+
 	RESTORE_REGS_FROM_STACK
 	RESTORE_PSP
+
 	__asm__ __volatile__ (
 		"mov r0, #0x02							\n\t"
 		"msr control, r0						\n\t"
 		"isb									\n\t"
+		"mov r0, #0								\n\t"
+		"msr basepri, r0						\n\t"
 		"CPSIE I								\n\t"
+		"CPSIE F								\n\t"
 	);
 
 	schedule();
