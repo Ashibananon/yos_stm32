@@ -149,7 +149,7 @@ static void _yspi_start_rx_dma(uint32_t transfer_size)
 	_dma_recv_half = 0;
 	_dma_recv_error = 0;
 	dma_stream_reset(DEFAULT_SPI_DMA_RX ,DEFAULT_SPI_DMA_RX_STREAM);
-	dma_set_peripheral_address(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DEFAULT_SPI_DMA_RX_PERI_ADDR);
+	dma_set_peripheral_address(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, (uint32_t)&DEFAULT_SPI_DMA_RX_PERI_ADDR);
 	dma_set_memory_address(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, (uint32_t)_default_spi_dma_rx_buffer);
 	dma_set_number_of_data(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, transfer_size);
 	dma_channel_select(DEFAULT_SPI_DMA_RX, DEFAULT_SPI_DMA_RX_STREAM, DEFAULT_SPI_DMA_RX_CHANNEL);
@@ -202,7 +202,7 @@ static void _yspi_start_tx_dma(uint32_t transfer_size)
 	_dma_send_half = 0;
 	_dma_send_error = 0;
 	dma_stream_reset(DEFAULT_SPI_DMA_TX ,DEFAULT_SPI_DMA_TX_STREAM);
-	dma_set_peripheral_address(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DEFAULT_SPI_DMA_TX_PERI_ADDR);
+	dma_set_peripheral_address(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, (uint32_t)&DEFAULT_SPI_DMA_TX_PERI_ADDR);
 	dma_set_memory_address(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, (uint32_t)_default_spi_dma_tx_buffer);
 	dma_set_number_of_data(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, transfer_size);
 	dma_channel_select(DEFAULT_SPI_DMA_TX, DEFAULT_SPI_DMA_TX_STREAM, DEFAULT_SPI_DMA_TX_CHANNEL);
@@ -267,7 +267,6 @@ int yspi_master_init(void)
 
 #if (DEFAULT_SPI_USE_DMA == 1)
 	rcc_periph_clock_enable(DEFAULT_SPI_DMA_RCC);
-	//rcc_periph_clock_enable(DEFAULT_SPI_DMAD_RCC);
 
 	/* Set RX DMA */
 	//nvic_set_priority(DEFAULT_SPI_DMA_RX_NVIC_IRQ, 0);
