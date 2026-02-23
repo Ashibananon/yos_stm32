@@ -16,7 +16,7 @@ extern "C" {
 #define HAS_AHT20_SENSOR						1
 #define HAS_SSD1306_OLED						1
 #define HAS_SPI_SDCARD_MODULE					1
-
+#define HAS_AUDIO_MODULE						1
 
 #if (HAS_CMDLINE == 1)
 #include "../lib/cmdline/basic_io.h"
@@ -34,6 +34,10 @@ extern "C" {
 
 #if (HAS_SPI_SDCARD_MODULE == 1)
 #include "ydevice/spi_sdcard/yspi_sdcard.h"
+#endif
+
+#if (HAS_AUDIO_MODULE == 1)
+#include "yaudio/yaudio.h"
 #endif
 
 #ifdef __cplusplus

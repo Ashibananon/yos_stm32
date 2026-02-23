@@ -18,10 +18,12 @@ extern "C" {
 #define CMDLINE_BLANK_CHARS				" \t\r\n"
 #define CMDLINE_QUOTE_CHARS				"\"\'"
 #define CMDLINE_MAX_PARA_CNT			10
-#define CMDLINE_NAME					"STM32"
+#define CMDLINE_NAME					"yos_stm32"
 #define CMDLINE_MARK					"> "
 #define CMDLINE_EXIT_CMD_NAME			"exit"
 #define CMDLINE_HELP_CMD_NAME			"help"
+
+#define BASIC_IO_TEXT_END_MARK			'\n'
 
 #define CMDLINE_OUTPUT_VERBOSE			1
 

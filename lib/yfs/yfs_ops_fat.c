@@ -5,6 +5,7 @@
  *
  */
 
+#include <stdlib.h>
 #include "yfs_ops_fat.h"
 
 #if (YFS_IS_WITH_FAT == 1)
@@ -195,7 +196,7 @@ para_err:
 	return bytes_written;
 }
 
-static int yfs_ops_fat_fseek(struct yfs_file *yfile, uint32_t offset, enum yfs_whence_flags whence)
+static int yfs_ops_fat_fseek(struct yfs_file *yfile, int64_t offset, enum yfs_whence_flags whence)
 {
 	int ret = -1;
 	if (yfile == NULL || yfile->data == NULL) {
@@ -213,9 +214,9 @@ static int yfs_ops_fat_fseek(struct yfs_file *yfile, uint32_t offset, enum yfs_w
 	if (whence == YFS_SEEK_SET) {
 		pos = offset;
 	} else if (whence == YFS_SEEK_CUR) {
-		goto not_support;
+		pos = (FSIZE_t)((int64_t)(f_tell((FIL *)yfile->data)) + offset);
 	} else if (whence == YFS_SEEK_END) {
-		pos = finfo.fsize - offset;
+		pos = (FSIZE_t)((int64_t)(finfo.fsize) + offset);
 	} else {
 		goto para_err_2;
 	}
@@ -226,8 +227,20 @@ static int yfs_ops_fat_fseek(struct yfs_file *yfile, uint32_t offset, enum yfs_w
 	}
 
 para_err_2:
-not_support:
 file_stat_err:
+para_err:
+	return ret;
+}
+
+static int64_t yfs_ops_fat_ftell(struct yfs_file *yfile)
+{
+	int64_t ret = -1;
+	if (yfile == NULL) {
+		goto para_err;
+	}
+
+	ret = f_tell((FIL *)(yfile->data));
+
 para_err:
 	return ret;
 }
@@ -478,6 +491,7 @@ static struct yfs_ops _yfs_ops_fat = {
 	.yfread = yfs_ops_fat_fread,
 	.yfwrite = yfs_ops_fat_fwrite,
 	.yfseek = yfs_ops_fat_fseek,
+	.yftell = yfs_ops_fat_ftell,
 	.yfsync = yfs_ops_fat_fsync,
 	.yfeof = yfs_ops_fat_feof,
 	.yfremove = yfs_ops_fat_fremove,

@@ -15,10 +15,9 @@
 #include "yos/ytimer.h"
 #include "main_config.h"
 
-
 static void system_clock_setup(void)
 {
-	rcc_clock_setup_pll(&rcc_hsi_configs[RCC_CLOCK_3V3_84MHZ]);
+	rcc_clock_setup_pll(&rcc_hse_25mhz_3v3[RCC_CLOCK_3V3_84MHZ]);
 }
 
 #if (HAS_CMDLINE == 1)
@@ -140,7 +139,7 @@ static int _oled_task(void *para)
 int main(void)
 {
 	system_clock_setup();
-	ytimer_init();
+	//ytimer_init();
 
 	if (basic_io_init(yusart_io_operations) != 0) {
 		return -1;
@@ -151,7 +150,7 @@ int main(void)
 		return -1;
 	}
 
-	if (yspi_master_init() != 0) {
+	if (yspi_master_init(YSPI_1_CTRL) != 0) {
 		basic_io_printf("SPI master init failed\n");
 		return -1;
 	}
@@ -178,6 +177,13 @@ int main(void)
 #if (HAS_AHT20_SENSOR == 1)
 	if (yos_create_task(_aht20_task, NULL, 1024, "ahttsk") < 0 ) {
 		basic_io_printf("Failed to create aht20 task\n");
+		return -1;
+	}
+#endif
+
+#if (HAS_AUDIO_MODULE == 1)
+	if (yaudio_player_start() != 0) {
+		basic_io_printf("Failed to start yaudio player\n");
 		return -1;
 	}
 #endif

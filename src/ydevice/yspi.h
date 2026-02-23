@@ -11,12 +11,12 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <libopencm3/stm32/gpio.h>
+#include "../yos/common_def.h"
+#include "../yos/ymutex.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#define DEFAULT_FPCLK					(84 * 1000 * 1000)
 
 #define DEFAULT_SPI_TRAN_WITH_MUTEX		1
 #define DEFAULT_SPI_USE_DMA				1
@@ -55,7 +55,6 @@ extern "C" {
 
 #if (DEFAULT_SPI_USE_DMA == 1)
 #define DEFAULT_SPI_DMA_RCC				RCC_DMA2
-#define DEFAULT_SPI_DMAD_RCC			RCC_DMA2D
 
 /* SPI DMA Settings: RX */
 #define DEFAULT_SPI_DMA_RX				DMA2
@@ -77,6 +76,52 @@ extern "C" {
 #define DEFAULT_SPI_DMA_TX_NVIC_IRQ		NVIC_DMA2_STREAM3_IRQ
 #define DEFAULT_SPI_DMA_TX_ISR			dma2_stream3_isr
 #endif
+
+
+struct yspi_ctrl {
+	uint32_t spi_rcc;
+	uint32_t spi_base;
+	uint32_t spi_nvic_irq;
+	uint32_t spi_baudrate;
+	void (*spi_gpio_init)(int is_init);
+	uint32_t spi_cpol;
+	uint32_t spi_cpha;
+	uint32_t spi_data_format;
+	uint32_t spi_msb_lsb_first;
+#if (DEFAULT_SPI_TRAN_WITH_MUTEX == 1)
+	struct ymutex spi_mutex;
+#endif
+#if (DEFAULT_SPI_USE_DMA == 1)
+	uint32_t spi_dma_rx_rcc;
+	uint32_t spi_dma_rx_base;
+	uint32_t spi_dma_rx_stream;
+	uint32_t spi_dma_rx_chsel;
+	uint32_t spi_dma_rx_mem_size;
+	uint32_t spi_dma_rx_peri_size;
+	uint32_t spi_dma_rx_peri_addr;
+	uint32_t spi_dma_rx_nvic_irq;
+
+	uint32_t spi_dma_tx_rcc;
+	uint32_t spi_dma_tx_base;
+	uint32_t spi_dma_tx_stream;
+	uint32_t spi_dma_tx_chsel;
+	uint32_t spi_dma_tx_mem_size;
+	uint32_t spi_dma_tx_peri_size;
+	uint32_t spi_dma_tx_peri_addr;
+	uint32_t spi_dma_tx_nvic_irq;
+
+	int volatile spi_dma_is_recving;
+	int volatile spi_dma_recv_half;
+	int volatile spi_dma_recv_error;
+
+	int volatile spi_dma_is_sending;
+	int volatile spi_dma_send_half;
+	int volatile spi_dma_send_error;
+
+	uint8_t spi_dma_rx_buffer[DEFAULT_SPI_DMA_RX_BUFFER_SIZE];
+	uint8_t spi_dma_tx_buffer[DEFAULT_SPI_DMA_TX_BUFFER_SIZE];
+#endif
+};
 
 
 /* This is for CS pin to SPI device */
@@ -135,20 +180,24 @@ int yspi_device_select(struct yspi_device *dev);
 int yspi_device_unselect(struct yspi_device *dev);
 
 
-int yspi_master_init(void);
-int yspi_master_deinit(void);
+int yspi_master_init(struct yspi_ctrl *spi);
+int yspi_master_deinit(struct yspi_ctrl *spi);
 
-int yspi_master_set_speed(uint32_t freq);
+int yspi_master_set_speed(struct yspi_ctrl *spi, uint32_t freq);
 
-int yspi_trans_begin(struct yspi_device *cs);
-int yspi_trans_end(struct yspi_device *cs);
+int yspi_trans_begin(struct yspi_ctrl *spi, struct yspi_device *cs);
+int yspi_trans_end(struct yspi_ctrl *spi, struct yspi_device *cs);
 
-uint8_t yspi_write_and_read_byte(uint8_t data);
-uint32_t yspi_send(void *data, uint32_t data_len);
-uint32_t yspi_receive(void *buf, uint32_t buf_len);
-uint32_t yspi_send_and_receive(void *send_data, void *recv_buf, uint32_t data_len, uint8_t send_byte_filler);
+uint8_t yspi_write_and_read_byte(struct yspi_ctrl *spi, uint8_t data);
+uint32_t yspi_send(struct yspi_ctrl *spi, void *data, uint32_t data_len);
+uint32_t yspi_receive(struct yspi_ctrl *spi, void *buf, uint32_t buf_len);
+uint32_t yspi_send_and_receive(struct yspi_ctrl *spi, void *send_data, void *recv_buf, uint32_t data_len, uint8_t send_byte_filler);
 
-uint8_t yspi_trans_write_and_read_byte(struct yspi_device *cs, uint8_t data);
+uint8_t yspi_trans_write_and_read_byte(struct yspi_ctrl *spi, struct yspi_device *cs, uint8_t data);
+
+
+extern struct yspi_ctrl *YSPI_1_CTRL;
+
 
 #if (DEFAULT_SPI_OUTPUT_DBG_MSG == 1)
 #include "../../lib/cmdline/basic_io.h"

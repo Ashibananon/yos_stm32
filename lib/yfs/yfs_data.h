@@ -141,7 +141,14 @@ struct yfs_ops {
 	 *
 	 * NOTE: If [whence] is YFS_SEEK_END, it will seek back [offset] bytes from EOF
 	 */
-	int (*yfseek)(struct yfs_file *yfile, uint32_t offset, enum yfs_whence_flags whence);
+	int (*yfseek)(struct yfs_file *yfile, int64_t offset, enum yfs_whence_flags whence);
+
+	/*
+	 * YFS get file pointer position
+	 *
+	 * Return: the file pointer position, or a minus value on error
+	 */
+	int64_t (*yftell)(struct yfs_file *yfile);
 
 	/*
 	 * YFS sync file
@@ -272,7 +279,8 @@ int yfs_fopen(struct yfs_data *yfs, struct yfs_file *yfile, char *filename, enum
 int yfs_fclose(struct yfs_data *yfs, struct yfs_file *yfile);
 uint32_t yfs_fwrite(struct yfs_data *yfs, struct yfs_file *yfile, void *src, uint32_t size);
 uint32_t yfs_fread(struct yfs_data *yfs, struct yfs_file *yfile, void *dst, uint32_t size);
-int yfs_fseek(struct yfs_data *yfs, struct yfs_file *yfile, uint32_t offset, enum yfs_whence_flags whence);
+int yfs_fseek(struct yfs_data *yfs, struct yfs_file *yfile, int64_t offset, enum yfs_whence_flags whence);
+int64_t yfs_ftell(struct yfs_data *yfs, struct yfs_file *yfile);
 int yfs_fsync(struct yfs_data *yfs, struct yfs_file *yfile);
 int yfs_feof(struct yfs_data *yfs, struct yfs_file *yfile, int *iseof);
 int yfs_fremove(struct yfs_data *yfs, char *path);

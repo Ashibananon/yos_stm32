@@ -12,7 +12,7 @@
 #include <libopencm3/stm32/usart.h>
 #include <stdio.h>
 #include "yusart.h"
-#include "../../lib/ringbuf/yringbuffer.h"
+#include "../../lib/yrenga/yringbuffer.h"
 
 #define DEFAULT_USART_PORT					USART1
 #define DEFAULT_USART_RCC					RCC_USART1
@@ -25,6 +25,18 @@
 
 static char _yusart_receive_buffer[YUSART_RECEIVE_BUFFER_SIZE_BYTE];
 static struct YRingBuffer _yusart_rx_rb;
+
+static void _yusart_rx_rb_enter_critical(void)
+{
+	//cm_disable_interrupts();
+	usart_disable_rx_interrupt(DEFAULT_USART_PORT);
+}
+
+static void _yusart_rx_rb_leave_critical(void)
+{
+	//cm_enable_interrupts();
+	usart_enable_rx_interrupt(DEFAULT_USART_PORT);
+}
 
 static void yusart_interrupt_disable(void)
 {
@@ -51,7 +63,10 @@ static void yusart_init(uint32_t baudrate, uint8_t stop_bits)
 	rcc_periph_clock_enable(DEFAULT_USART_GPIO_RCC);
 	rcc_periph_clock_enable(DEFAULT_USART_RCC);
 
-	YRingBufferInit(&_yusart_rx_rb, _yusart_receive_buffer, sizeof(_yusart_receive_buffer));
+	YRingBufferInit(&_yusart_rx_rb, _yusart_receive_buffer,
+					sizeof(_yusart_receive_buffer[0]),
+					sizeof(_yusart_receive_buffer) / sizeof(_yusart_receive_buffer[0]),
+					_yusart_rx_rb_enter_critical, _yusart_rx_rb_leave_critical);
 
 	gpio_mode_setup(DEFAULT_USART_GPIO_BANK_TX, GPIO_MODE_AF,
 				GPIO_PUPD_NONE, DEFAULT_USART_GPIO_TX);
@@ -83,7 +98,7 @@ void usart1_isr(void)
 	if (usart_get_flag(DEFAULT_USART_PORT, USART_SR_RXNE)) {
 		/* Read data register not empty */
 		d = usart_recv(DEFAULT_USART_PORT);
-		YRingBufferPutData(&_yusart_rx_rb, &d, sizeof(d), 1);
+		YRingBufferPutItemsInCritical(&_yusart_rx_rb, &d, 1, 1);
 #if 0
 	} else if (usart_get_flag(DEFAULT_USART_PORT, USART_SR_TXE)) {
 		/* Transmit data buffer empty */
@@ -124,26 +139,18 @@ static int yusart_can_transmit(void)
 {
 	int ret;
 
-	cm_disable_interrupts();
-	//yusart_interrupt_disable();
+	//cm_disable_interrupts();
+	yusart_interrupt_disable();
 	ret = usart_get_flag(DEFAULT_USART_PORT, USART_SR_TXE);
-	//yusart_interrupt_enable();
-	cm_enable_interrupts();
+	yusart_interrupt_enable();
+	//cm_enable_interrupts();
 
 	return ret;
 }
 
 static int yusart_can_receive(void)
 {
-	int can;
-
-	cm_disable_interrupts();
-	//yusart_interrupt_disable();
-	can = YRingBufferGetSize(&_yusart_rx_rb) > 0;
-	//yusart_interrupt_enable();
-	cm_enable_interrupts();
-
-	return can;
+	return (YRingBufferGetCurrentItemCount(&_yusart_rx_rb) > 0);
 }
 
 static int yusart_io_init(void)
@@ -165,16 +172,12 @@ static int yusart_io_read_byte_no_block(uint8_t *b)
 	int ret = -1;
 	uint8_t data;
 
-	cm_disable_interrupts();
-	//yusart_interrupt_disable();
-	if (YRingBufferGetData(&_yusart_rx_rb, &data, sizeof(data)) == sizeof(data)) {
+	if (YRingBufferGetItems(&_yusart_rx_rb, &data, 1) == 1) {
 		if (b != NULL) {
 			*b = data;
 		}
 		ret = 0;
 	}
-	//yusart_interrupt_enable();
-	cm_enable_interrupts();
 
 	return ret;
 }
@@ -183,14 +186,14 @@ static int yusart_io_write_byte_no_block(uint8_t b)
 {
 	int ret = -1;
 
-	cm_disable_interrupts();
-	//yusart_interrupt_disable();
+	//cm_disable_interrupts();
+	yusart_interrupt_disable();
 	if (usart_get_flag(DEFAULT_USART_PORT, USART_SR_TXE)) {
 		usart_send(DEFAULT_USART_PORT, b);
 		ret = 0;
 	}
-	//yusart_interrupt_enable();
-	cm_enable_interrupts();
+	yusart_interrupt_enable();
+	//cm_enable_interrupts();
 
 	return ret;
 }

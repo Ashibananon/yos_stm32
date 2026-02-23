@@ -306,6 +306,8 @@ int yos_create_task(int (*task_func)(void *task_data), void *data,
 		return -1;
 	}
 
+	cm_disable_interrupts();
+
 	task_id = task_id_for_next;
 	struct yos_task *this_task = _all_tasks + task_id;
 	this_task->task_func = task_func;
@@ -330,6 +332,8 @@ int yos_create_task(int (*task_func)(void *task_data), void *data,
 
 	task_id_for_next++;
 	stack_bp_for_next_task -= stack_size;
+
+	cm_enable_interrupts();
 
 	return task_id;
 }
@@ -370,6 +374,7 @@ static int _yos_idle_task(void *para)
 	YOS_DBG("_yos_idle_task is running\n");
 	while (1) {
 		i++;
+		schedule();
 	}
 
 	return 0;

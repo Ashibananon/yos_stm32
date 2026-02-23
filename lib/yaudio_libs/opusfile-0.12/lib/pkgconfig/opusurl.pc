@@ -1,0 +1,14 @@
+# opusurl installed pkg-config file
+
+prefix=/media/yuan/YUAN_TOSHIBA_EXT/Projects/yaudio_libs/opusfile-0.12/build
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: opusurl
+Description: High-level Opus decoding library, URL support
+Version: unknown
+Requires: opusfile
+Requires.private: 
+Conflicts:
+Libs: -L${libdir} -lopusurl

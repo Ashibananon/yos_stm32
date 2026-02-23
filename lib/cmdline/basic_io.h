@@ -17,7 +17,6 @@
 extern "C" {
 #endif
 
-#define BASIC_IO_TEXT_END_MARK	'\n'
 #define BASIC_IO_SPACE_CHAR		' '
 
 struct basic_io_port_operations {
@@ -151,7 +150,7 @@ int32_t basic_io_read(char *buf, uint16_t buf_len);
  * この関数はEOLを読み込むまで、または「buf_len」で指定するバイト数を読み込むまで戻りません
  * つまり、この関数はブロックすることをご注意ください
  */
-int32_t basic_io_readline(char *buf, uint16_t buf_len);
+//int32_t basic_io_readline(char *buf, uint16_t buf_len);
 
 
 /* Write data with byte count of data_len,
@@ -222,6 +221,8 @@ int is_hex_char(char c, unsigned char *d);
 int is_one_digit_hex(unsigned char hex, char *c);
 
 int can_display_char(char c);
+
+int is_string_end_with(char *str, char *end_str);
 
 #ifdef __cplusplus
 }

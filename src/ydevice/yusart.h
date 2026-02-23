@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-#define USART_BAUDRATE		115200
+#define USART_BAUDRATE		500000
 #define USART_DATABIT		8
 #define USART_STOPBITS		1
 

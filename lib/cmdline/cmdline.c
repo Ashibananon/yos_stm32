@@ -40,7 +40,34 @@ static void _cmd_printf(const char *msg, ...)
 
 static int _cmd_read_line(char *buf, uint16_t len)
 {
-	return basic_io_readline(buf, len);
+	if (buf == NULL) {
+		return -1;
+	}
+
+	uint16_t _byte_read = 0;
+	char byte;
+	int result = -1;
+	while (_byte_read < len) {
+		result = basic_io_read_byte(buf + _byte_read);
+		if (result == 0) {
+			byte = *(buf + _byte_read);
+			_byte_read++;
+			if (byte == BASIC_IO_TEXT_END_MARK) {
+				*(buf + _byte_read - 1) = '\0';
+				break;
+			}
+		} else {
+			/* Error occurs */
+			yos_task_delay(10);
+			continue;
+		}
+	}
+
+	if (_byte_read == len) {
+		*(buf + _byte_read - 1) = '\0';
+	}
+
+	return _byte_read;
 }
 
 static int _search_char_in_string(const char c, const char *str)
@@ -246,6 +273,7 @@ static int _cmd_sys_info(int argc, char **argv)
 	_cmd_printf("  sz short=%d\n", sizeof(short));
 	_cmd_printf("  sz int=%d\n", sizeof(int));
 	_cmd_printf("  sz long=%d\n", sizeof(long));
+	_cmd_printf("  sz long long=%d\n", sizeof(long long));
 	_cmd_printf("  sz float=%d\n", sizeof(float));
 	_cmd_printf("  sz double=%d\n", sizeof(double));
 	_cmd_printf("  sz void *=%d\n", sizeof(void *));
@@ -1030,6 +1058,102 @@ fdd_usage:
 }
 #endif
 
+#if (HAS_AUDIO_MODULE == 1)
+/*
+ * Usage: yaudio {play | stop | status} audio_file
+ */
+static void yaudio_cmd_usage(char *cmd)
+{
+	_cmd_printf("Usage: %s {play | pause | stop | status}\n", cmd);
+	_cmd_printf("       %s set <audio_file>\n", cmd);
+	_cmd_printf("       %s volume <volume_l> <volume_r>\n", cmd);
+}
+
+static int yaudio_cmd(int argc, char **argv)
+{
+	if (argc == 2) {
+		if (strcmp(argv[1], "play") == 0) {
+			if (yaudio_play() == 0) {
+				_cmd_printf("Send play cmd ok\n");
+			} else {
+				_cmd_printf("Send play cmd failed\n");
+			}
+		} else if (strcmp(argv[1], "pause") == 0) {
+			if (yaudio_pause() == 0) {
+				_cmd_printf("Send pause cmd ok\n");
+			} else {
+				_cmd_printf("Send pause cmd failed\n");
+			}
+		} else if (strcmp(argv[1], "stop") == 0) {
+			if (yaudio_stop() == 0) {
+				_cmd_printf("Send stop cmd ok\n");
+			} else {
+				_cmd_printf("Send stop cmd failed\n");
+			}
+		} else if (strcmp(argv[1], "status") == 0) {
+			struct yaudio_player _yp;
+			if (yaudio_get_status(&_yp) == 0) {
+				_cmd_printf("YAudio Player status:\n");
+				_cmd_printf("  Running: %s\n", _yp.is_running ? "Yes" : "No");
+				_cmd_printf("  Status: %d\n", _yp.status);
+				_cmd_printf("  Volume: (%d, %d)\n", _yp.volume_l, _yp.volume_r);
+				_cmd_printf("  Total duration: %d ms\n", _yp.audio_file_duration_ms);
+				_cmd_printf("  Played duration: %d ms\n", _yp.audio_file_played_ms);
+				_cmd_printf("  Audio File: [%s]\n", _yp.audio_file);
+				_cmd_printf("  Sample Rate: [%d]\n", _yp.sampling_rate);
+				_cmd_printf("  Sample Cnt: [%u][%u]\n",
+								(uint32_t)(_yp.sample_num >> 32),
+								(uint32_t)(_yp.sample_num & 0xFFFFFFFF));
+				_cmd_printf("  Sample Played: [%u][%u]\n",
+								(uint32_t)(_yp.sample_played >> 32),
+								(uint32_t)(_yp.sample_played & 0xFFFFFFFF));
+				_cmd_printf("  Channels: [%d]\n", _yp.channel);
+				_cmd_printf("  Bit depth: [%d]\n", _yp.audio_bit_depth);
+			} else {
+				_cmd_printf("Get audio player status failed\n");
+			}
+		} else {
+			goto usage;
+		}
+	} else if (argc == 3) {
+		if (strcmp(argv[1], "set") == 0) {
+			if (yaudio_set_audio_file(argv[2]) == 0) {
+				_cmd_printf("Send cmd to set audio file [%s] ok\n",
+							argv[2]);
+			} else {
+				_cmd_printf("Send cmd to set audio file [%s] failed\n",
+							argv[2]);
+			}
+		} else {
+			goto usage;
+		}
+	} else if (argc == 4) {
+		if (strcmp(argv[1], "volume") == 0) {
+			uint8_t vl = atoi(argv[2]);
+			uint8_t vr = atoi(argv[3]);
+			if (yaudio_change_volume(vl, vr) == 0) {
+				_cmd_printf("Send cmd to change volume to (%d, %d) ok\n",
+							vl, vr);
+			} else {
+				_cmd_printf("Send cmd to change volume to (%d, %d) failed\n",
+							vl, vr);
+			}
+		} else {
+			goto usage;
+		}
+	} else {
+		goto usage;
+	}
+
+	return 0;
+
+usage:
+	yaudio_cmd_usage(argv[0]);
+
+	return -1;
+}
+#endif
+
 static int _cmd_tasks_info(int argc, char **argv)
 {
 	_cmd_printf("ID    ST      SS     MSS    NAME\n");
@@ -1082,6 +1206,10 @@ static struct _cmd_info _cmd_list[] = {
 	CMD_INFO_ITEM(yfs_cmd_copy, "ycp", "copy file"),
 	CMD_INFO_ITEM(yfs_cmd_dd, "ydd", "data copy"),
 	CMD_INFO_ITEM(yfs_cmd_touch, "ytouch", "create an empty file"),
+#endif
+
+#if (HAS_AUDIO_MODULE == 1)
+	CMD_INFO_ITEM(yaudio_cmd, "yaudio", "play audio file"),
 #endif
 
 	CMD_INFO_ITEM(_cmd_exit, CMDLINE_EXIT_CMD_NAME, "Exit cmdline")

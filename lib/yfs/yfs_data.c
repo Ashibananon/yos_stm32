@@ -147,13 +147,22 @@ uint32_t yfs_fread(struct yfs_data *yfs, struct yfs_file *yfile, void *dst, uint
 	return yfs->ops->yfread(yfile, dst, size);
 }
 
-int yfs_fseek(struct yfs_data *yfs, struct yfs_file *yfile, uint32_t offset, enum yfs_whence_flags whence)
+int yfs_fseek(struct yfs_data *yfs, struct yfs_file *yfile, int64_t offset, enum yfs_whence_flags whence)
 {
 	if (yfs == NULL || yfs->ops == NULL || yfs->ops->yfseek == NULL) {
 		return -1;
 	}
 
 	return yfs->ops->yfseek(yfile, offset, whence);
+}
+
+int64_t yfs_ftell(struct yfs_data *yfs, struct yfs_file *yfile)
+{
+	if (yfs == NULL || yfs->ops == NULL || yfs->ops->yftell == NULL) {
+		return -1;
+	}
+
+	return yfs->ops->yftell(yfile);
 }
 
 int yfs_fsync(struct yfs_data *yfs, struct yfs_file *yfile)

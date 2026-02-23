@@ -19,7 +19,7 @@
 #define YSDCARD_SPI_CS_VALID_VALUE			YSPI_CS_VALID_ON_LOW
 
 #if (DEFAULT_SPI_USE_DMA == 1)
-#define YSDCARD_SPI_SPEED_HIGH				(YSPI_FREQUENCY_MIN * 16)
+#define YSDCARD_SPI_SPEED_HIGH				(YSPI_FREQUENCY_MIN * 32)
 #else
 #define YSDCARD_SPI_SPEED_HIGH				(YSPI_FREQUENCY_MIN * 16)
 #endif
@@ -27,6 +27,7 @@
 
 #define YSDCARD_CARD_NAME					"sdcard0"
 
+static struct yspi_ctrl *_sdcard_spi_ctrl = NULL;
 static struct yspi_device _sdcard_spi_dev;
 
 static void _on_spi_event(enum YSPI_DEVICE_EVENT evt)
@@ -68,22 +69,22 @@ static int yspi_sd_control(struct sd_card* card, enum sd_user_ctrl ctrl)
 		}
 		break;
 	case Sd_User_Ctrl_Take_Bus:
-		if (yspi_trans_begin(&_sdcard_spi_dev) == 0) {
+		if (yspi_trans_begin(_sdcard_spi_ctrl, &_sdcard_spi_dev) == 0) {
 			ret = 0;
 		}
 		break;
 	case Sd_User_Ctrl_Release_Bus:
-		if (yspi_trans_end(&_sdcard_spi_dev) == 0) {
+		if (yspi_trans_end(_sdcard_spi_ctrl, &_sdcard_spi_dev) == 0) {
 			ret = 0;
 		}
 		break;
 	case Sd_User_Ctrl_Set_Low_Speed:
-		if (yspi_master_set_speed(YSDCARD_SPI_SPEED_LOW) == 0) {
+		if (yspi_master_set_speed(_sdcard_spi_ctrl, YSDCARD_SPI_SPEED_LOW) == 0) {
 			ret = 0;
 		}
 		break;
 	case Sd_User_Ctrl_Set_High_Speed:
-		if (yspi_master_set_speed(YSDCARD_SPI_SPEED_HIGH) == 0) {
+		if (yspi_master_set_speed(_sdcard_spi_ctrl, YSDCARD_SPI_SPEED_HIGH) == 0) {
 			ret = 0;
 		}
 		break;
@@ -105,7 +106,7 @@ static int yspi_sd_transfer(struct sd_card* card, struct sd_spi_buf* tx, struct 
 	}
 
 	if (tx != NULL) {
-		tx->used = yspi_send_and_receive(tx->data, NULL, tx->size, 0xFF);
+		tx->used = yspi_send_and_receive(_sdcard_spi_ctrl,tx->data, NULL, tx->size, 0xFF);
 		if (tx->used == tx->size) {
 			ret = 0;
 		}
@@ -114,7 +115,7 @@ static int yspi_sd_transfer(struct sd_card* card, struct sd_spi_buf* tx, struct 
 	}
 
 	if (rx != NULL) {
-		rx->used = yspi_send_and_receive(NULL, rx->data, rx->size, 0xFF);
+		rx->used = yspi_send_and_receive(_sdcard_spi_ctrl, NULL, rx->data, rx->size, 0xFF);
 		if (rx->used == rx->size) {
 			ret = 0;
 		}
@@ -180,6 +181,12 @@ int ysdcard_init(void)
 {
 	int ret = -1;
 
+	if (_sdcard_spi_ctrl != NULL) {
+		/* Alread inited, just return */
+		return 0;
+	}
+	_sdcard_spi_ctrl = YSPI_1_CTRL;
+
 	enum sd_error sdret = sd_spi_lib_init();
 	if (sdret != Sd_Err_OK) {
 		YSD_DBG("sd_spi_lib_init returned %d\n", sdret);
@@ -225,6 +232,8 @@ int ysdcard_deinit(void)
 
 	yspi_sd_card = NULL;
 
+	_sdcard_spi_ctrl = NULL;
+
 	ret = 0;
 sd_not_inited:
 	return ret;
@@ -253,7 +262,6 @@ int ysdcard_get_sdcard_info(struct ysdcard_info *sdinfo)
 
 	ret = 0;
 
-get_sd_status_err:
 para_err:
 	return ret;
 }

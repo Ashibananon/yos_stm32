@@ -17,6 +17,9 @@ extern "C" {
 #define FLASH_SIZE					(256 * 1024)
 #define SRAM_SIZE					(64 * 1024)
 
+
+#define DEFAULT_FPCLK				(84 * 1000 * 1000)
+
 #ifdef __cplusplus
 }
 #endif

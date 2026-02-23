@@ -81,6 +81,8 @@ int32_t basic_io_read(char *buf, uint16_t buf_len)
 	return cnt;
 }
 
+/* To be delete */
+#if 0
 int32_t basic_io_readline(char *buf, uint16_t buf_len)
 {
 	if (buf == NULL) {
@@ -111,6 +113,7 @@ int32_t basic_io_readline(char *buf, uint16_t buf_len)
 
 	return _byte_read;
 }
+#endif
 
 int32_t basic_io_write(char *data, uint16_t data_len, int block)
 {
@@ -365,4 +368,19 @@ int is_one_digit_hex(unsigned char hex, char *c)
 int can_display_char(char c)
 {
 	return (c >= 0x21 && c <= 0x7E);
+}
+
+int is_string_end_with(char *str, char *end_str)
+{
+	int ret = 0;
+	if (str == NULL || end_str == NULL) {
+		goto para_err;
+	}
+
+	if (strcmp(str + strlen(str) - strlen(end_str), end_str) == 0) {
+		ret = 1;
+	}
+
+para_err:
+	return ret;
 }
