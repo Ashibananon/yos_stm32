@@ -86,10 +86,10 @@ int YRingBufferReturnTheItemAddressInCritical(struct YRingBuffer *rb);
 uint32_t YRingBufferGetTakenItemNumber(struct YRingBuffer *rb);
 uint32_t YRingBufferGetTakenItemNumberInCritical(struct YRingBuffer *rb);
 
-void *YRingBufferTakeAnBlankItemAddress(struct YRingBuffer *rb);
-void *YRingBufferTakeAnBlankItemAddressInCritical(struct YRingBuffer *rb);
-int YRingBufferReturnTheBlankItemAddress(struct YRingBuffer *rb, void *addr);
-int YRingBufferReturnTheBlankItemAddressInCritical(struct YRingBuffer *rb, void *addr);
+void *YRingBufferTakeAnBlankItemAddress(struct YRingBuffer *rb, int force_on_full);
+void *YRingBufferTakeAnBlankItemAddressInCritical(struct YRingBuffer *rb, int force_on_full);
+int YRingBufferReturnTheBlankItemAddress(struct YRingBuffer *rb);
+int YRingBufferReturnTheBlankItemAddressInCritical(struct YRingBuffer *rb);
 
 
 uint32_t YRingBufferGetItemSize(struct YRingBuffer *rb);

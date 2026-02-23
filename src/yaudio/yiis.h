@@ -32,6 +32,14 @@ extern "C" {
 #define DEFAULT_IIS_GPIO_CLK					GPIO13
 #define DEFAULT_IIS_GPIO_SD						GPIO15
 
+#define DEFAULT_IIS_REC_GPIO_RCC_WS				RCC_GPIOA
+#define DEFAULT_IIS_REC_GPIO_RCC_CLK_SD			RCC_GPIOB
+#define DEFAULT_IIS_REC_GPIO_PORT_WS			GPIOA
+#define DEFAULT_IIS_REC_GPIO_PORT_CLK_SD		GPIOB
+#define DEFAULT_IIS_REC_GPIO_WS					GPIO15
+#define DEFAULT_IIS_REC_GPIO_CLK				GPIO3
+#define DEFAULT_IIS_REC_GPIO_SD					GPIO5
+
 enum IIS_AUDIO_STANDARD {
 	IIS_AUDIO_STANDARD_INVALID = -1,
 	IIS_AUDIO_STANDARD_PHILIPS_STANDARD,
@@ -70,7 +78,9 @@ struct yiis_ctrl {
 	uint32_t iis_dma_tx_nvic_irq;
 	int volatile iis_dma_tx_enabled;
 
+	struct YRingBuffer *dma_rx_ringbuf;
 	struct YRingBuffer *dma_tx_ringbuf;
+
 	int volatile is_dma_working;
 
 	uint32_t sampling_rate;
@@ -88,23 +98,24 @@ struct yiis_ctrl {
 };
 
 
-int yiis_init(struct yiis_ctrl *iis);
-int yiis_deinit(struct yiis_ctrl *iis);
-
-int yiis_config(struct yiis_ctrl *iis, uint32_t sampling_rate,
-				uint8_t channels, uint8_t bit_depth,
-				enum IIS_AUDIO_STANDARD audio_standard);
-
-int yiis_dma_start_tx(struct yiis_ctrl *iis, struct YRingBuffer *rb,
-				uint8_t *addr, uint16_t data_length);
-int yiis_dma_end_tx(struct yiis_ctrl *iis);
-
 enum yiis_dma_direction {
 	YIIS_DMA_DIRECTION_UNKNOWN = -1,
 	YIIS_DMA_DIRECTION_RX,
 	YIIS_DMA_DIRECTION_TX,
 	YIIS_DMA_DIRECTION_MAX
 };
+
+
+int yiis_init(struct yiis_ctrl *iis);
+int yiis_deinit(struct yiis_ctrl *iis);
+
+int yiis_config(struct yiis_ctrl *iis, enum yiis_dma_direction dir,
+				uint32_t sampling_rate, uint8_t channels, uint8_t bit_depth,
+				enum IIS_AUDIO_STANDARD audio_standard);
+
+int yiis_dma_start(struct yiis_ctrl *iis, enum yiis_dma_direction dir,
+					struct YRingBuffer *rb, uint16_t data_length);
+int yiis_dma_end(struct yiis_ctrl *iis, enum yiis_dma_direction dir);
 
 void yiis_dma_disable_interrupts(struct yiis_ctrl *iis, enum yiis_dma_direction dir);
 void yiis_dma_enable_interrupts(struct yiis_ctrl *iis, enum yiis_dma_direction dir);
@@ -117,6 +128,7 @@ int32_t yiis_receive_data(struct yiis_ctrl *iis, uint8_t *buf, uint16_t length);
 
 
 extern struct yiis_ctrl *YIIS_2_CTRL;
+extern struct yiis_ctrl *YIIS_3_CTRL;
 
 
 #if (DEFAULT_IIS_OUTPUT_DBG_MSG == 0)

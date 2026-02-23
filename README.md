@@ -19,6 +19,17 @@ STM32F401RCT6 MCU
 | PA5 | SPI SCK | SD Card Module | CLK |
 | PA6 | SPI MISO | SD Card Module | MOSI |
 | PA7 | SPI MOSI | SD Card Module | MISO |
+| PB12 | I2S(Output) WS | I2S DAC Module | WS |
+| PB13 | I2S(Output) CLK | I2S DAC Module | BCK |
+| PB15 | I2S(Output) SD | I2S DAC Module | DIN |
+| PA15 | I2S(Input) WS | I2S MIC(L) | WS |
+| | | I2S MIC(R) | WS |
+| PB3 | I2S(Input) CLK | I2S MIC(L) | CLK |
+| | | I2S MIC(R) | CLK |
+| PB5 | I2S(Input) SD | I2S MIC(L) | SD |
+| | | I2S MIC(R) | SD |
+
+
 
 ### STM32F401RCT6
 - ARM Cortex M4
@@ -52,12 +63,6 @@ STM32F401RCT6 MCU
 
   最大8個ユーザー用タイマー
 
-- YFS
-
-  A abstract file system, and the interfaces are implemented with FAT and LittleFS
-
-  抽象化層ファイルシステム、インタフェースはFAT、LittleFSに実現しています
-
 ## Hardware Interface Driver（ハードウェア　インタフェース　ドライバー）
 - USART
 
@@ -67,6 +72,7 @@ STM32F401RCT6 MCU
 
 - IIC
 - SPI
+- I2S
 
 ## Others（その他）
 - A cmdline interface
@@ -85,9 +91,27 @@ STM32F401RCT6 MCU
 
   SDカードモジュール（第三者ライブラリ利用）
 
-  ** Please notice that the SDSC card seems not supported by the 3rd library, and only one type of SDHC card is confirmed by myself: KIOXIA 16GB
+  ** Please notice that the SDSC card seems not supported by the 3rd library, and only one type of SDHC card is confirmed: KIOXIA 16GB
 
   ※利用している第三者ライブラリの説明によって、SDSCカードは利用できません。今の時点ではたった一つのSDHCカードに動作確認しました：KIOXIA 16GB
+
+- YFS
+
+  A abstract file system, and the interfaces are implemented with FAT and LittleFS
+
+  抽象化層ファイルシステム、インタフェースはFAT、LittleFSに実現しています
+
+- WAV Player
+
+  Play wav file from SD card
+
+  SDカードのwavファイルを再生します
+
+- Audio Recorder
+
+  Record audio to SD card as wav file
+
+  録音してwavファイルとしてSDカードに保存します
 
 # How to use（使い方）
 It is quite easy to use YOS, maybe it will be faster to go and have a look at main()
@@ -298,6 +322,12 @@ Right now the following commands are available:
 
 	空ファイルを新規します
 
+- yaudio
+
+	audio play or record
+
+	音声ファイル再生、または録音します
+
 - exit
 
 	Exit command line
@@ -334,6 +364,7 @@ Example（例）:
 		             ycp        copy file
 		             ydd        data copy
 		          ytouch        create an empty file
+				  yaudio        play audio file
 		            exit        Exit cmdline
 
 - Command [echo]
@@ -436,6 +467,10 @@ Example（例）:
 		  max file size: 0
 		  mount point: /sd
 
+  **Please note that the default mount point is [/sd]**
+
+  **SDカードのデフォルトマウントポイントは「/sd」になることをご注意ください**
+
 - YFS commands examples
 
   YFS操作コマンド例
@@ -465,6 +500,133 @@ Example（例）:
 
 		STM32>
 
+- Command [yaudio]
+
+  コマンド[yaudio]
+
+  To play a wav file from SD or record audios to SD, SD card must be initialized and YFS must starts.
+
+  wavファイルの再生、または録音してSDに保存するには、SDカードの初期化とYFS起動することが必要です。
+
+  (1) play wav file (wavファイル再生)
+
+		/* 1. Check wav files on sd　(SDカードのwavファイル情報を確認します) */
+		yos_stm32> yls /sd
+		Files on /sd:
+		T         Size Name
+		-     52920114 music2.wav
+		-     25319394 music1.wav
+		d              audios
+
+		/* 2. Set wav file to play (再生するwavファイルを指定します) */
+		yos_stm32> yaudio set /sd/music1.wav
+		Send cmd to set audio file [/sd/music1.wav] ok
+		[YAUDIO]Receive cmd: set audio file to [/sd/musiyos_stm32> c1.wav]
+		/* The output message of the last line seems disorder, no need to worry.
+		 * 上の行の出力情報は混乱しているが、気にしなくては大丈夫です。
+		 */
+
+		/* 3. Play (再生) */
+		yos_stm32> yaudio play
+		Send play cmd ok
+		yos_stm32> [YAUDIO]Receive cmd: play
+		[YAUDIO]File[/sd/music1.wav] open ok
+		[YAUDIO]Open wav file [/sd/music1.wav] OK
+		[YAUDIO]Audio info:
+		[YAUDIO]  channels: [2]
+		[YAUDIO]  sample rate: [44100]
+		[YAUDIO]  bit depth: [16]
+		[YAUDIO]  sample num: [0][6329820]
+		/* You will see the wav file info output like above, if everything goes well.
+		 * 問題なければ、上記のようなwavファイルの情報が出力されます。
+		 */
+
+		/* When play ends, the following message will output.
+		 * 再生が終わったら、下記の情報が出力されます。
+		 */
+		[YAUDIO]EOF reached
+		[YAUDIO]File[/sd/music1.wav] closed
+		[YAUDIO]pcm data read times: 0:21100
+		[YAUDIO]pcm data wait times: 0:28020
+		[YAUDIO]dma data wait times: 0:0
+
+		/* During playing, you can pause or stop it by the following command
+		 *
+		 * 再生中ですが、下記のコマンドを入力して一時停止、また再生終了ができます
+		 *
+		 * [yaudio pause] -- pause (一時停止)
+		 * [yaudio play]  -- play (再生)
+		 * [yaudio stop]  -- stop playing (再生終了)
+		 */
+
+
+  (2) record (録音)
+
+		/* 1. Check wav files on sd　(SDカードのwavファイル情報を確認します) */
+		yos_stm32> yls /sd
+		Files on /sd:
+		T         Size Name
+		-     52920114 music2.wav
+		-     25319394 music1.wav
+		d              audios
+
+		/* 2. Set a wav file name to record.
+		 *    Please specify a new file name, or the record will fail for the file
+		 *    already exists.
+		 *
+		 *    録音データを保存するwavファイルを指定します。
+		 *    存在しないwavファイル名を指定してください、でないと録音はできません。
+		 *    既に存在しているファイルを上書きないのです。
+		 */
+		yos_stm32> yaudio set /sd/test.wav
+		Send cmd to set audio file [/sd/test.wav] ok
+		yo[YAUDIO]Receive cmd: set audio file to [/sd/tests_stm32> .wav]
+		/* The output message of the last line seems disorder, no need to worry.
+		 * 上の行の出力情報は混乱しているが、気にしなくては大丈夫です。
+		 */
+
+		/* 3. Start record
+		 *
+		 *    録音を開始します
+		 */
+		yos_stm32> yaudio record
+		Send record cmd ok
+		yos_stm32> [YAUDIO]Receive cmd: record
+		[YAUDIO]File[/sd/test.wav] open ok
+		[YAUDIO]Open wav file [/sd/test.wav] OK
+		[YAUDIO]Audio info:
+		[YAUDIO]  channels: [2]
+		[YAUDIO]  sample rate: [8000]
+		[YAUDIO]  bit depth: [32]
+		[YAUDIO]  sample num: [0][0]
+
+		/* 4. Stop record
+		 *
+		 *    録音終了します
+		 */
+		yos_stm32> yaudio stop
+		Send stop cmd ok
+		yos_stm32> [YAUDIO]Receive cmd: stop
+		[YAUDIO]File[/sd/test.wav] closed
+		[YAUDIO]pcm data read times: 0:576
+		[YAUDIO]pcm data wait times: 0:3380
+		[YAUDIO]dma data wait times: 0:0
+
+		/* 5. Check record wav file.
+		 *    You can just play it with [yaudio play].
+		 *
+		 *    録音wavファイルを確認します
+		 *    コマンド「yaudio play」を実行して再生できます
+		 */
+		yos_stm32> yls /sd
+		Files on /sd:
+		T         Size Name
+		-       691244 test.wav
+		-     52920114 music2.wav
+		-     25319394 music1.wav
+		d              audios
+
+
 # About OLED（OLEDについて）
 The following infomations are displayed on OLED:
 
@@ -488,12 +650,17 @@ The following 3rd libraries are used and let me thanks the authors.
 
 下記の第三者ライブラリを利用しています、著作者方々に感謝の意を表させてください。
 
+- libopencm3(https://github.com/libopencm3/libopencm3)
+
+  Framework for this project
+
+  フレームワークとしてこのプロジェクトを開発します
+
 - For AHT20(https://github.com/kpierzynski/AVR_aht20)
 
   is under the folder [lib/AVR_aht20]
 
   フォルダ[lib/AVR_aht20]に格納します
-
 
 - For SSD1306 OLED(https://github.com/tinusaur/ssd1306xled)
 
@@ -512,6 +679,12 @@ The following 3rd libraries are used and let me thanks the authors.
   is under the folder [lib/sd-spi-driver]
 
   フォルダ[lib/sd-spi-driver]に格納します
+
+- For wav file playing and recording(https://github.com/mackron/dr_libs)
+
+  is under the folder [lib/yaudio_libs/dr_libs-wav-0.14.2]
+
+  フォルダ[lib/yaudio_libs/dr_libs-wav-0.14.2]に格納します
 
 ## About modifications（ソース修正について）
 It seems that it is difficult to exclude source files of a 3rd-library from building with PlatformIO, and some source files make building errors.

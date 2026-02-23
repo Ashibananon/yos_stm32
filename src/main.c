@@ -161,7 +161,7 @@ int main(void)
 	yos_init();
 
 #if (HAS_CMDLINE == 1)
-	if (yos_create_task(_cmdline_task, NULL, 4096, "cmdtask") < 0) {
+	if (yos_create_task(_cmdline_task, NULL, 8192, "cmdtask") < 0) {
 		basic_io_printf("Failed to create cmdline task\n");
 		return -1;
 	}

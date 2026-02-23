@@ -358,19 +358,19 @@ para_err:
 	return ret;
 }
 
-void *YRingBufferTakeAnBlankItemAddress(struct YRingBuffer *rb)
+void *YRingBufferTakeAnBlankItemAddress(struct YRingBuffer *rb, int force_on_full)
 {
 	void *ret;
 
 	_YRingBufferEnterCritical(rb);
-	ret = YRingBufferTakeAnBlankItemAddressInCritical(rb);
+	ret = YRingBufferTakeAnBlankItemAddressInCritical(rb, force_on_full);
 	_YRingBufferLeaveCritical(rb);
 
 para_err:
 	return ret;
 }
 
-void *YRingBufferTakeAnBlankItemAddressInCritical(struct YRingBuffer *rb)
+void *YRingBufferTakeAnBlankItemAddressInCritical(struct YRingBuffer *rb, int force_on_full)
 {
 	void *ret = NULL;
 	if (rb == NULL) {
@@ -384,7 +384,15 @@ void *YRingBufferTakeAnBlankItemAddressInCritical(struct YRingBuffer *rb)
 		if (rb->end == rb->start) {
 			if (rb->current_len == rb->size) {
 				/* Full */
-				break;
+				if (force_on_full) {
+					//((char *)(rb->data))[rb->end++] = ((char *)data)[cnt++];
+					ret = (char *)rb->data + rb->end * rb->size_of_item;
+					rb->start++;
+					rb->current_len--;
+					rb->blank_item_taken_num++;
+				} else {
+					break;
+				}
 			} else {
 				/* Empty */
 				//((char *)(rb->data))[rb->end++] = ((char *)data)[cnt++];
@@ -396,6 +404,13 @@ void *YRingBufferTakeAnBlankItemAddressInCritical(struct YRingBuffer *rb)
 			ret = (char *)rb->data + rb->end * rb->size_of_item;
 			rb->blank_item_taken_num++;
 		}
+
+		if (rb->start >= rb->size) {
+			rb->start = 0;
+		}
+		if (rb->end >= rb->size) {
+			rb->end = 0;
+		}
 	} while (0);
 
 cannot_take_more_blank_addr:
@@ -403,32 +418,40 @@ para_err:
 	return ret;
 }
 
-int YRingBufferReturnTheBlankItemAddress(struct YRingBuffer *rb, void *addr)
+int YRingBufferReturnTheBlankItemAddress(struct YRingBuffer *rb)
 {
 	int ret;
 	_YRingBufferEnterCritical(rb);
-	ret = YRingBufferReturnTheBlankItemAddressInCritical(rb, addr);
+	ret = YRingBufferReturnTheBlankItemAddressInCritical(rb);
 	_YRingBufferLeaveCritical(rb);
 
 	return ret;
 }
 
-int YRingBufferReturnTheBlankItemAddressInCritical(struct YRingBuffer *rb, void *addr)
+int YRingBufferReturnTheBlankItemAddressInCritical(struct YRingBuffer *rb)
 {
 	int ret = -1;
-	if (rb == NULL || addr == NULL) {
+	if (rb == NULL) {
 		goto para_err;
 	}
 
+	if (rb->blank_item_taken_num == 0) {
+		goto no_taken_item;
+	}
+
+#if 0
 	if (((char *)rb->data + rb->end * rb->size_of_item) != addr) {
 		goto bad_addr;
 	}
+#endif
 
 	do {
 		if (rb->end == rb->start) {
 			if (rb->current_len == rb->size) {
 				/* Full */
-				break;
+				rb->end++;
+				rb->blank_item_taken_num--;
+				ret = 0;
 			} else {
 				/* Empty */
 				rb->end++;
@@ -452,6 +475,7 @@ int YRingBufferReturnTheBlankItemAddressInCritical(struct YRingBuffer *rb, void 
 	} while (0);
 
 bad_addr:
+no_taken_item:
 para_err:
 	return ret;
 }

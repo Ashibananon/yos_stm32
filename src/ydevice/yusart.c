@@ -58,7 +58,7 @@ static void yusart_interrupt_enable(void)
 
 static void yusart_init(uint32_t baudrate, uint8_t stop_bits)
 {
-	cm_disable_interrupts();
+	//cm_disable_interrupts();
 
 	rcc_periph_clock_enable(DEFAULT_USART_GPIO_RCC);
 	rcc_periph_clock_enable(DEFAULT_USART_RCC);
@@ -89,7 +89,7 @@ static void yusart_init(uint32_t baudrate, uint8_t stop_bits)
 	/* Finally enable the USART. */
 	usart_enable(DEFAULT_USART_PORT);
 
-	cm_enable_interrupts();
+	//cm_enable_interrupts();
 }
 
 void usart1_isr(void)
@@ -122,7 +122,7 @@ void usart1_isr(void)
 
 static void yusart_deinit(void)
 {
-	cm_disable_interrupts();
+	//cm_disable_interrupts();
 
 	usart_disable(DEFAULT_USART_PORT);
 	nvic_disable_irq(NVIC_USART1_IRQ);
@@ -132,7 +132,7 @@ static void yusart_deinit(void)
 	rcc_periph_clock_disable(DEFAULT_USART_GPIO_RCC);
 	rcc_periph_clock_disable(DEFAULT_USART_RCC);
 
-	cm_enable_interrupts();
+	//cm_enable_interrupts();
 }
 
 static int yusart_can_transmit(void)

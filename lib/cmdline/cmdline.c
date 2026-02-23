@@ -746,9 +746,9 @@ static int yfs_cmd_copy(int argc, char **argv)
 {
 	int ret;
 	int fret_src, fret_dst;
-	struct yfs_file *f_src = NULL;
-	struct yfs_file *f_dst = NULL;
-	unsigned char buf[256];
+	struct yfs_file f_src;
+	struct yfs_file f_dst;
+	unsigned char buf[4096];
 	uint32_t bytes_to_copy;
 	uint32_t bytes_copied;
 	uint32_t bytes_read;
@@ -761,42 +761,28 @@ static int yfs_cmd_copy(int argc, char **argv)
 		goto fcp_arg_err;
 	}
 
-	f_src = (struct yfs_file *)malloc(sizeof(struct yfs_file));
-	if (f_src == NULL) {
-		_cmd_printf("%s: allocate mem for f_src failed\n", argv[0]);
-		ret = -2;
-		goto fcp_fsrc_alloc_err;
-	}
-
-	f_dst = (struct yfs_file *)malloc(sizeof(struct yfs_file));
-	if (f_dst == NULL) {
-		_cmd_printf("%s: allocate mem for f_dst failed\n", argv[0]);
-		ret = -3;
-		goto fcp_fdst_alloc_err;
-	}
-
-	fret_src = yfs_fopen(YFS_Data, f_src, argv[1], YFS_O_RDONLY);
+	fret_src = yfs_fopen(YFS_Data, &f_src, argv[1], YFS_O_RDONLY);
 	if (fret_src != 0) {
 		_cmd_printf("%s: open src [%s] error(%d)\n", argv[0], argv[1], fret_src);
 		ret = -4;
 		goto fcp_open_err_src;
 	}
 
-	fret_dst = yfs_fopen(YFS_Data, f_dst, argv[2], YFS_O_WRONLY | YFS_O_CREAT);
+	fret_dst = yfs_fopen(YFS_Data, &f_dst, argv[2], YFS_O_WRONLY | YFS_O_CREAT);
 	if (fret_dst != 0) {
 		_cmd_printf("%s: open dst [%s] error(%d)\n", argv[0], argv[2], fret_dst);
 		ret = -5;
 		goto fcp_open_err_dst;
 	}
 
-	fret_dst = yfs_ftrunc(YFS_Data, f_dst, 0);
+	fret_dst = yfs_ftrunc(YFS_Data, &f_dst, 0);
 	if (fret_dst != 0) {
 		_cmd_printf("%s: trunc dst [%s] error(%d)\n", argv[0], argv[2], fret_dst);
 		ret = -6;
 		goto fcp_trunc_dst_err;
 	}
 
-	int fret = yfs_fsize(YFS_Data, f_src, &bytes_to_copy);
+	int fret = yfs_fsize(YFS_Data, &f_src, &bytes_to_copy);
 	if (fret != 0) {
 		_cmd_printf("%s: get src file size failed(%d)\n", argv[0], fret);
 		goto src_size_err;
@@ -805,11 +791,11 @@ static int yfs_cmd_copy(int argc, char **argv)
 	bytes_copied = 0;
 	_cmd_printf("%s: %d bytes to copy\n", argv[0], bytes_to_copy);
 	while (bytes_to_copy > 0) {
-		bytes_read = yfs_fread(YFS_Data, f_src, buf, sizeof(buf));
+		bytes_read = yfs_fread(YFS_Data, &f_src, buf, sizeof(buf));
 		if (bytes_read > 0) {
 			bytes_written = 0;
 			while (bytes_written < bytes_read) {
-				bytes_written_once = yfs_fwrite(YFS_Data, f_dst,
+				bytes_written_once = yfs_fwrite(YFS_Data, &f_dst,
 									buf + bytes_written,
 									bytes_read - bytes_written);
 				if (bytes_written_once > 0) {
@@ -837,14 +823,10 @@ fcp_write_dst_err:
 fcp_read_src_err:
 src_size_err:
 fcp_trunc_dst_err:
-	yfs_fclose(YFS_Data, f_dst);
+	yfs_fclose(YFS_Data, &f_dst);
 fcp_open_err_dst:
-	yfs_fclose(YFS_Data, f_src);
+	yfs_fclose(YFS_Data, &f_src);
 fcp_open_err_src:
-	free(f_dst);
-fcp_fdst_alloc_err:
-	free(f_src);
-fcp_fsrc_alloc_err:
 fcp_arg_err:
 	return ret;
 }
@@ -1064,7 +1046,7 @@ fdd_usage:
  */
 static void yaudio_cmd_usage(char *cmd)
 {
-	_cmd_printf("Usage: %s {play | pause | stop | status}\n", cmd);
+	_cmd_printf("Usage: %s {play | record | pause | stop | status}\n", cmd);
 	_cmd_printf("       %s set <audio_file>\n", cmd);
 	_cmd_printf("       %s volume <volume_l> <volume_r>\n", cmd);
 }
@@ -1077,6 +1059,12 @@ static int yaudio_cmd(int argc, char **argv)
 				_cmd_printf("Send play cmd ok\n");
 			} else {
 				_cmd_printf("Send play cmd failed\n");
+			}
+		} else if (strcmp(argv[1], "record") == 0) {
+			if (yaudio_record() == 0) {
+				_cmd_printf("Send record cmd ok\n");
+			} else {
+				_cmd_printf("Send record cmd failed\n");
 			}
 		} else if (strcmp(argv[1], "pause") == 0) {
 			if (yaudio_pause() == 0) {
@@ -1156,12 +1144,14 @@ usage:
 
 static int _cmd_tasks_info(int argc, char **argv)
 {
-	_cmd_printf("ID    ST      SS     MSS    NAME\n");
+	_cmd_printf("%3s   %2s      %6s      %6s    %s\n",
+				"ID", "ST", "SS", "MSS", "NAME");
+	_cmd_printf("-----------------------------------------------\n");
 	struct yos_task_info ti;
 	int i = 0;
 	while (i < YOS_MAX_TASK_COUNT) {
 		if (yos_get_task_info(i, &ti) == 0) {
-			_cmd_printf("%03d   %2d    %4d    %4d    %s\n",
+			_cmd_printf("%03d   %2d      %6d      %6d    %s\n",
 					ti.id, ti.status, ti.stack_size, ti.stack_max_reached_size, ti.name);
 		}
 

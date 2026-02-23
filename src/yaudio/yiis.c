@@ -119,6 +119,32 @@ static void _yiis_2_gpio_init(int is_init)
 	}
 }
 
+static void _yiis_3_gpio_init(int is_init)
+{
+	if (is_init) {
+		/* Init gpio for IIS */
+		rcc_periph_clock_enable(DEFAULT_IIS_REC_GPIO_RCC_WS);
+		rcc_periph_clock_enable(DEFAULT_IIS_REC_GPIO_RCC_CLK_SD);
+		gpio_mode_setup(DEFAULT_IIS_REC_GPIO_PORT_WS, GPIO_MODE_AF,
+						GPIO_PUPD_NONE, DEFAULT_IIS_REC_GPIO_WS);
+		gpio_mode_setup(DEFAULT_IIS_REC_GPIO_PORT_CLK_SD, GPIO_MODE_AF,
+						GPIO_PUPD_NONE, DEFAULT_IIS_REC_GPIO_CLK | DEFAULT_IIS_REC_GPIO_SD);
+
+		gpio_set_output_options(DEFAULT_IIS_REC_GPIO_PORT_WS, GPIO_OTYPE_PP,
+								GPIO_OSPEED_50MHZ, DEFAULT_IIS_REC_GPIO_WS);
+		gpio_set_output_options(DEFAULT_IIS_REC_GPIO_PORT_CLK_SD, GPIO_OTYPE_PP,
+								GPIO_OSPEED_50MHZ, DEFAULT_IIS_REC_GPIO_CLK);
+		//gpio_mode_setup(DEFAULT_IIS_REC_GPIO_PORT_CLK_SD, );
+
+		gpio_set_af(DEFAULT_IIS_REC_GPIO_PORT_WS, GPIO_AF6,
+					DEFAULT_IIS_REC_GPIO_WS);
+		gpio_set_af(DEFAULT_IIS_REC_GPIO_PORT_CLK_SD, GPIO_AF6,
+					DEFAULT_IIS_REC_GPIO_CLK | DEFAULT_IIS_REC_GPIO_SD);
+	} else {
+		/* Deinit gpio of IIS */
+		//rcc_periph_clock_disable(DEFAULT_IIS_GPIO_RCC);
+	}
+}
 
 static struct yiis_ctrl _yiis_2_ctrl = {
 	.iis_rcc = RCC_SPI2,
@@ -154,8 +180,42 @@ static struct yiis_ctrl _yiis_2_ctrl = {
 #endif
 };
 
+static struct yiis_ctrl _yiis_3_ctrl = {
+	.iis_rcc = RCC_SPI3,
+	.iis_rcc_rst = RST_SPI3,
+	.iis_base = SPI3,
+	.iis_nvic_irq = NVIC_SPI3_IRQ,
+	.iis_gpio_init = _yiis_3_gpio_init,
+
+#if (DEFAULT_IIS_USE_DMA == 1)
+	.iis_dma_rx_rcc = RCC_DMA1,
+	.iis_dma_rx_base = DMA1,
+	.iis_dma_rx_stream = DMA_STREAM2,
+	.iis_dma_rx_chsel = DMA_SxCR_CHSEL_0,
+	.iis_dma_rx_mem_size = DMA_SxCR_MSIZE_16BIT,
+	.iis_dma_rx_peri_size = DMA_SxCR_PSIZE_16BIT,
+	.iis_dma_rx_peri_addr = (uint32_t)(&SPI3_DR),
+	.iis_dma_rx_nvic_irq = NVIC_DMA1_STREAM2_IRQ,
+
+	.iis_dma_tx_rcc = RCC_DMA1,
+	.iis_dma_tx_base = DMA1,
+	.iis_dma_tx_stream = DMA_STREAM5,
+	.iis_dma_tx_chsel = DMA_SxCR_CHSEL_0,
+	.iis_dma_tx_mem_size = DMA_SxCR_MSIZE_16BIT,
+	.iis_dma_tx_peri_size = DMA_SxCR_PSIZE_16BIT,
+	.iis_dma_tx_peri_addr = (uint32_t)(&SPI3_DR),
+	.iis_dma_tx_nvic_irq = NVIC_DMA1_STREAM5_IRQ,
+
+	.sampling_rate = 0,
+	.channels = 0,
+	.bit_depth = 0,
+	.transfer_bit_width = 8,
+	.audio_standard = IIS_AUDIO_STANDARD_PHILIPS_STANDARD
+#endif
+};
 
 struct yiis_ctrl *YIIS_2_CTRL = &_yiis_2_ctrl;
+struct yiis_ctrl *YIIS_3_CTRL = &_yiis_3_ctrl;
 
 
 int yiis_init(struct yiis_ctrl *iis)
@@ -211,13 +271,17 @@ para_err:
 	return ret;
 }
 
-int yiis_config(struct yiis_ctrl *iis, uint32_t sampling_rate,
-				uint8_t channels, uint8_t bit_depth,
+int yiis_config(struct yiis_ctrl *iis, enum yiis_dma_direction dir,
+				uint32_t sampling_rate, uint8_t channels, uint8_t bit_depth,
 				enum IIS_AUDIO_STANDARD audio_standard)
 {
 	int ret = -1;
 	enum IIS_CLOCK_TARGET_HZ iis_smr;
 	enum IIS_DATA_FORMAT iis_dfmt;
+
+	if (iis == NULL || (dir != YIIS_DMA_DIRECTION_RX && dir != YIIS_DMA_DIRECTION_TX)) {
+		goto para_err;
+	}
 
 	iis->bit_depth = 0;
 	iis->transfer_bit_width = 8;
@@ -322,7 +386,11 @@ int yiis_config(struct yiis_ctrl *iis, uint32_t sampling_rate,
 	//nvic_enable_irq(iis->iis_nvic_irq);
 	SPI_I2SCFGR(iis->iis_base) &= ~SPI_I2SCFGR_I2SE;
 	SPI_I2SCFGR(iis->iis_base) |= SPI_I2SCFGR_I2SMOD;
-	SPI_I2SCFGR(iis->iis_base) |= (SPI_I2SCFGR_I2SCFG_MASTER_TRANSMIT << SPI_I2SCFGR_I2SCFG_LSB);
+	if (dir == YIIS_DMA_DIRECTION_RX) {
+		SPI_I2SCFGR(iis->iis_base) |= (SPI_I2SCFGR_I2SCFG_MASTER_RECEIVE << SPI_I2SCFGR_I2SCFG_LSB);
+	} else if (dir == YIIS_DMA_DIRECTION_TX) {
+		SPI_I2SCFGR(iis->iis_base) |= (SPI_I2SCFGR_I2SCFG_MASTER_TRANSMIT << SPI_I2SCFGR_I2SCFG_LSB);
+	}
 
 	if (audio_standard == IIS_AUDIO_STANDARD_PHILIPS_STANDARD) {
 		SPI_I2SCFGR(iis->iis_base) |= (SPI_I2SCFGR_I2SSTD_I2S_PHILIPS << SPI_I2SCFGR_I2SSTD_LSB);
@@ -367,13 +435,14 @@ static void _yiis_start_rx_dma(struct yiis_ctrl *iis, void *buf, uint16_t transf
 	iis->iis_dma_rx_enabled = 1;
 
 	dma_stream_reset(iis->iis_dma_rx_base, iis->iis_dma_rx_stream);
+	dma_enable_double_buffer_mode(iis->iis_dma_rx_base, iis->iis_dma_rx_stream);
 	dma_set_peripheral_address(iis->iis_dma_rx_base, iis->iis_dma_rx_stream, iis->iis_dma_rx_peri_addr);
 	dma_set_memory_address(iis->iis_dma_rx_base, iis->iis_dma_rx_stream, (uint32_t)buf);
+	dma_set_memory_address_1(iis->iis_dma_rx_base, iis->iis_dma_rx_stream, (uint32_t)buf);
 	dma_set_number_of_data(iis->iis_dma_rx_base, iis->iis_dma_rx_stream, transfer_size / (iis->transfer_bit_width / 8));
 	dma_channel_select(iis->iis_dma_rx_base, iis->iis_dma_rx_stream, iis->iis_dma_rx_chsel);
 	dma_set_dma_flow_control(iis->iis_dma_rx_base, iis->iis_dma_rx_stream);
 	//dma_set_priority(iis->iis_dma_rx_base, iis->iis_dma_rx_stream, DMA_SxCR_PL_MEDIUM);
-	dma_enable_direct_mode(iis->iis_dma_rx_base, iis->iis_dma_rx_stream);
 	dma_set_transfer_mode(iis->iis_dma_rx_base, iis->iis_dma_rx_stream, DMA_SxCR_DIR_PERIPHERAL_TO_MEM);
 	dma_enable_memory_increment_mode(iis->iis_dma_rx_base, iis->iis_dma_rx_stream);
 	dma_disable_peripheral_increment_mode(iis->iis_dma_rx_base, iis->iis_dma_rx_stream);
@@ -455,6 +524,54 @@ void dma1_stream3_isr(void)
 	}
 }
 
+/* IIS_3_DMA_RX isr */
+void dma1_stream2_isr(void)
+{
+	if (dma_get_interrupt_flag(YIIS_3_CTRL->iis_dma_rx_base, YIIS_3_CTRL->iis_dma_rx_stream, DMA_TCIF)) {
+		/* Transfer complete */
+		//dma_disable_transfer_complete_interrupt(YIIS_3_CTRL->iis_dma_rx_base, YIIS_3_CTRL->iis_dma_rx_stream);
+		dma_clear_interrupt_flags(YIIS_3_CTRL->iis_dma_rx_base, YIIS_3_CTRL->iis_dma_rx_stream, DMA_TCIF);
+
+		YRingBufferReturnTheBlankItemAddress(YIIS_3_CTRL->dma_rx_ringbuf);
+		void *next_addr = YRingBufferTakeAnBlankItemAddress(YIIS_3_CTRL->dma_rx_ringbuf, 1);
+
+		if (dma_get_target(YIIS_3_CTRL->iis_dma_rx_base,
+						YIIS_3_CTRL->iis_dma_rx_stream) == 0) {
+			dma_set_memory_address_1(YIIS_3_CTRL->iis_dma_rx_base,
+									YIIS_3_CTRL->iis_dma_rx_stream,
+									(uint32_t)next_addr);
+		} else {
+			dma_set_memory_address(YIIS_3_CTRL->iis_dma_rx_base,
+								YIIS_3_CTRL->iis_dma_rx_stream,
+								(uint32_t)next_addr);
+		}
+
+	} else if (dma_get_interrupt_flag(YIIS_3_CTRL->iis_dma_rx_base, YIIS_3_CTRL->iis_dma_rx_stream, DMA_HTIF)) {
+		/* Half transferred */
+		dma_disable_half_transfer_interrupt(YIIS_3_CTRL->iis_dma_rx_base, YIIS_3_CTRL->iis_dma_rx_stream);
+		dma_clear_interrupt_flags(YIIS_3_CTRL->iis_dma_rx_base, YIIS_3_CTRL->iis_dma_rx_stream, DMA_HTIF);
+
+	} else if (dma_get_interrupt_flag(YIIS_3_CTRL->iis_dma_rx_base, YIIS_3_CTRL->iis_dma_rx_stream, DMA_TEIF)) {
+		/* Transfer error */
+		dma_disable_transfer_error_interrupt(YIIS_3_CTRL->iis_dma_rx_base, YIIS_3_CTRL->iis_dma_rx_stream);
+		dma_clear_interrupt_flags(YIIS_3_CTRL->iis_dma_rx_base, YIIS_3_CTRL->iis_dma_rx_stream, DMA_TEIF);
+
+#if 0
+	} else if (dma_get_interrupt_flag(YIIS_3_CTRL->iis_dma_rx_base, YIIS_3_CTRL->iis_dma_rx_stream, DMA_DMEIF)) {
+		/* Direct mode error */
+		dma_clear_interrupt_flags(YIIS_3_CTRL->iis_dma_rx_base, YIIS_3_CTRL->iis_dma_rx_stream, DMA_DMEIF);
+		dma_disable_stream(YIIS_3_CTRL->iis_dma_rx_base ,YIIS_3_CTRL->iis_dma_rx_stream);
+
+	} else if (dma_get_interrupt_flag(YIIS_3_CTRL->iis_dma_rx_base, YIIS_3_CTRL->iis_dma_rx_stream, DMA_FEIF)) {
+		/* FIFO error */
+		dma_clear_interrupt_flags(YIIS_3_CTRL->iis_dma_rx_base, YIIS_3_CTRL->iis_dma_rx_stream, DMA_FEIF);
+		dma_disable_stream(YIIS_3_CTRL->iis_dma_rx_base ,YIIS_3_CTRL->iis_dma_rx_stream);
+
+	} else {
+#endif
+	}
+}
+
 /* IIS_2_DMA_TX isr */
 void dma1_stream4_isr(void)
 {
@@ -525,6 +642,41 @@ void dma1_stream4_isr(void)
 #endif
 	}
 }
+
+
+/* IIS_3_DMA_TX isr */
+void dma1_stream5_isr(void)
+{
+	if (dma_get_interrupt_flag(YIIS_3_CTRL->iis_dma_tx_base, YIIS_3_CTRL->iis_dma_tx_stream, DMA_TCIF)) {
+		/* Transfer complete */
+		dma_disable_transfer_complete_interrupt(YIIS_3_CTRL->iis_dma_tx_base, YIIS_3_CTRL->iis_dma_tx_stream);
+		dma_clear_interrupt_flags(YIIS_3_CTRL->iis_dma_tx_base, YIIS_3_CTRL->iis_dma_tx_stream, DMA_TCIF);
+
+	} else if (dma_get_interrupt_flag(YIIS_3_CTRL->iis_dma_tx_base, YIIS_3_CTRL->iis_dma_tx_stream, DMA_HTIF)) {
+		/* Half transferred */
+		dma_disable_half_transfer_interrupt(YIIS_3_CTRL->iis_dma_tx_base, YIIS_3_CTRL->iis_dma_tx_stream);
+		dma_clear_interrupt_flags(YIIS_3_CTRL->iis_dma_tx_base, YIIS_3_CTRL->iis_dma_tx_stream, DMA_HTIF);
+
+	} else if (dma_get_interrupt_flag(YIIS_3_CTRL->iis_dma_tx_base, YIIS_3_CTRL->iis_dma_tx_stream, DMA_TEIF)) {
+		/* Transfer error */
+		dma_disable_transfer_error_interrupt(YIIS_3_CTRL->iis_dma_tx_base, YIIS_3_CTRL->iis_dma_tx_stream);
+		dma_clear_interrupt_flags(YIIS_3_CTRL->iis_dma_tx_base, YIIS_3_CTRL->iis_dma_tx_stream, DMA_TEIF);
+
+#if 0
+	} else if (dma_get_interrupt_flag(YIIS_3_CTRL->iis_dma_tx_base, YIIS_3_CTRL->iis_dma_tx_stream, DMA_DMEIF)) {
+		/* Direct mode error */
+		dma_clear_interrupt_flags(YIIS_3_CTRL->iis_dma_tx_base, YIIS_3_CTRL->iis_dma_tx_stream, DMA_DMEIF);
+		dma_disable_stream(YIIS_3_CTRL->iis_dma_tx_base ,YIIS_3_CTRL->iis_dma_tx_stream);
+
+	} else if (dma_get_interrupt_flag(YIIS_3_CTRL->iis_dma_tx_base, YIIS_3_CTRL->iis_dma_tx_stream, DMA_FEIF)) {
+		/* FIFO error */
+		dma_clear_interrupt_flags(YIIS_3_CTRL->iis_dma_tx_base, YIIS_3_CTRL->iis_dma_tx_stream, DMA_FEIF);
+		dma_disable_stream(YIIS_3_CTRL->iis_dma_tx_base ,YIIS_3_CTRL->iis_dma_tx_stream);
+
+	} else {
+#endif
+	}
+}
 #endif
 
 
@@ -571,24 +723,30 @@ static void _yiis_on_dma_tx_complete(void)
 }
 #endif
 
-int yiis_dma_start_tx(struct yiis_ctrl *iis, struct YRingBuffer *rb,
-				uint8_t *addr, uint16_t data_length)
+int yiis_dma_start(struct yiis_ctrl *iis, enum yiis_dma_direction dir,
+				struct YRingBuffer *rb, uint16_t data_length)
 {
 	int ret = -1;
-	if (iis == NULL || rb == NULL || addr == NULL || data_length == 0 || iis->is_dma_working == 0) {
+	if (iis == NULL || (dir != YIIS_DMA_DIRECTION_RX && dir != YIIS_DMA_DIRECTION_TX)
+		|| rb == NULL || data_length == 0 || iis->is_dma_working == 0) {
 		goto para_err;
 	}
 
 	YRingBufferClear(rb);
-	iis->dma_tx_ringbuf = rb;
+
+	if (dir == YIIS_DMA_DIRECTION_RX) {
+		iis->dma_rx_ringbuf = rb;
+		_yiis_start_rx_dma(iis, YRingBufferTakeAnBlankItemAddress(iis->dma_rx_ringbuf, 1), data_length);
+	} else if (dir == YIIS_DMA_DIRECTION_TX) {
+		iis->dma_tx_ringbuf = rb;
+		_yiis_start_tx_dma(iis, rb->data, data_length);
+	}
 
 #if (IIS_DMA_WAIT_STATICSTIC == 1)
-	iis->real_data_come = 0;
-	iis->dma_buffer_not_ready_h = 0;
-	iis->dma_buffer_not_ready_l = 0;
+		iis->real_data_come = 0;
+		iis->dma_buffer_not_ready_h = 0;
+		iis->dma_buffer_not_ready_l = 0;
 #endif
-
-	_yiis_start_tx_dma(iis, addr, data_length);
 
 	ret = 0;
 
@@ -596,19 +754,31 @@ para_err:
 	return ret;
 }
 
-int yiis_dma_end_tx(struct yiis_ctrl *iis)
+int yiis_dma_end(struct yiis_ctrl *iis, enum yiis_dma_direction dir)
 {
 	int ret = -1;
-	if (iis == NULL || iis->is_dma_working == 0) {
+	if (iis == NULL || (dir != YIIS_DMA_DIRECTION_RX && dir != YIIS_DMA_DIRECTION_TX)
+		|| iis->is_dma_working == 0) {
 		goto para_err;
 	}
 
-	spi_disable_tx_dma(iis->iis_base);
-	dma_disable_stream(iis->iis_dma_tx_base ,iis->iis_dma_tx_stream);
-	dma_disable_transfer_complete_interrupt(iis->iis_dma_tx_base, iis->iis_dma_tx_stream);
-	dma_disable_half_transfer_interrupt(iis->iis_dma_tx_base, iis->iis_dma_tx_stream);
-	dma_disable_transfer_error_interrupt(iis->iis_dma_tx_base, iis->iis_dma_tx_stream);
-	iis->iis_dma_tx_enabled = 0;
+	if (dir == YIIS_DMA_DIRECTION_RX) {
+		spi_disable_rx_dma(iis->iis_base);
+		dma_disable_stream(iis->iis_dma_rx_base ,iis->iis_dma_rx_stream);
+		dma_disable_transfer_complete_interrupt(iis->iis_dma_rx_base, iis->iis_dma_rx_stream);
+		dma_disable_half_transfer_interrupt(iis->iis_dma_rx_base, iis->iis_dma_rx_stream);
+		dma_disable_transfer_error_interrupt(iis->iis_dma_rx_base, iis->iis_dma_rx_stream);
+		iis->iis_dma_rx_enabled = 0;
+	} else if (dir == YIIS_DMA_DIRECTION_TX) {
+		spi_disable_tx_dma(iis->iis_base);
+		dma_disable_stream(iis->iis_dma_tx_base ,iis->iis_dma_tx_stream);
+		dma_disable_transfer_complete_interrupt(iis->iis_dma_tx_base, iis->iis_dma_tx_stream);
+		dma_disable_half_transfer_interrupt(iis->iis_dma_tx_base, iis->iis_dma_tx_stream);
+		dma_disable_transfer_error_interrupt(iis->iis_dma_tx_base, iis->iis_dma_tx_stream);
+		iis->iis_dma_tx_enabled = 0;
+	}
+
+	ret = 0;
 
 para_err:
 	return ret;
@@ -696,7 +866,7 @@ int32_t yiis_transfer_data(struct yiis_ctrl *iis, uint8_t *data, uint16_t data_l
 		goto dma_not_start;
 	}
 
-	void *addr = YRingBufferTakeAnBlankItemAddress(iis->dma_tx_ringbuf);
+	void *addr = YRingBufferTakeAnBlankItemAddress(iis->dma_tx_ringbuf, 0);
 	if (addr == NULL) {
 		goto no_buffer_available;
 	}
@@ -711,7 +881,7 @@ int32_t yiis_transfer_data(struct yiis_ctrl *iis, uint8_t *data, uint16_t data_l
 	}
 	memcpy(addr, data, real_length_transfered);
 
-	if (YRingBufferReturnTheBlankItemAddress(iis->dma_tx_ringbuf, addr) != 0) {
+	if (YRingBufferReturnTheBlankItemAddress(iis->dma_tx_ringbuf) != 0) {
 		goto blank_item_return_failed;
 	}
 
@@ -719,6 +889,42 @@ int32_t yiis_transfer_data(struct yiis_ctrl *iis, uint8_t *data, uint16_t data_l
 
 blank_item_return_failed:
 no_buffer_available:
+dma_not_start:
+para_err:
+	return ret;
+}
+
+int32_t yiis_receive_data(struct yiis_ctrl *iis, uint8_t *buf, uint16_t length)
+{
+	int32_t ret = -1;
+	uint16_t buff_length;
+	uint16_t real_length_received;
+	if (iis == NULL || buf == NULL) {
+		goto para_err;
+	}
+	if (iis->is_dma_working == 0) {
+		goto dma_not_start;
+	}
+
+	void *addr = YRingBufferTakeAnItemAddress(iis->dma_rx_ringbuf);
+	if (addr == NULL) {
+		goto no_data_available;
+	}
+	buff_length = YRingBufferGetItemSize(iis->dma_rx_ringbuf);
+	if (length > buff_length) {
+		real_length_received = buff_length;
+	} else {
+		real_length_received = length;
+	}
+	memcpy(buf, addr, real_length_received);
+	if (YRingBufferReturnTheItemAddress(iis->dma_rx_ringbuf) != 0) {
+		goto return_item_failed;
+	}
+
+	ret = real_length_received;
+
+return_item_failed:
+no_data_available:
 dma_not_start:
 para_err:
 	return ret;

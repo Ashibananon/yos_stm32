@@ -166,7 +166,8 @@ para_err:
 
 static uint32_t yfs_ops_fat_fread(struct yfs_file *yfile, void *dst, uint32_t size)
 {
-	uint32_t bytes_read = 0;
+	uint32_t ret = 0;
+	uint32_t bytes_read;
 	if (yfile == NULL || yfile->data == NULL || dst == NULL || size == 0) {
 		goto para_err;
 	}
@@ -174,15 +175,18 @@ static uint32_t yfs_ops_fat_fread(struct yfs_file *yfile, void *dst, uint32_t si
 	FRESULT fret = f_read(yfile->data, dst, size, &bytes_read);
 	if (fret != FR_OK) {
 		/* Read error */
+	} else {
+		ret = bytes_read;
 	}
 
 para_err:
-	return bytes_read;
+	return ret;
 }
 
 static uint32_t yfs_ops_fat_fwrite(struct yfs_file *yfile, void *src, uint32_t size)
 {
-	uint32_t bytes_written = 0;
+	uint32_t ret = 0;
+	uint32_t bytes_written;
 	if (yfile == NULL || yfile->data == NULL || src == NULL || size == 0) {
 		goto para_err;
 	}
@@ -190,10 +194,12 @@ static uint32_t yfs_ops_fat_fwrite(struct yfs_file *yfile, void *src, uint32_t s
 	FRESULT fret = f_write(yfile->data, src, size, &bytes_written);
 	if (fret != FR_OK) {
 		/* Write error */
+	} else {
+		ret = bytes_written;
 	}
 
 para_err:
-	return bytes_written;
+	return ret;
 }
 
 static int yfs_ops_fat_fseek(struct yfs_file *yfile, int64_t offset, enum yfs_whence_flags whence)

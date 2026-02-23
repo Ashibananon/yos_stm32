@@ -27,21 +27,28 @@ static struct yqueue _yaudio_cmd_queue;
 
 static struct yfs_file _yaudio_file;
 static int volatile _yaudio_file_is_open = 0;
+static struct yiis_ctrl *yaudio_iis_ctrl = NULL;
 
-/* Buffer size must be the number divisible by the channel num and byte num of data width */
+/*
+ * Buffer size must be the number divisible by both the channel num
+ * and byte num of bit depth
+ */
 #define _PCM_FRAME_BUFFER_SIZE			(1200)
 #define _PCM_FRAME_BUFFER_COUNT			4
-static char volatile _pcm_frames_buffer[_PCM_FRAME_BUFFER_COUNT][_PCM_FRAME_BUFFER_SIZE];
-static struct YRingBuffer volatile _pcm_frame_rb;
-static char volatile pcm_frames[_PCM_FRAME_BUFFER_SIZE];
+static char _pcm_frames_buffer[_PCM_FRAME_BUFFER_COUNT][_PCM_FRAME_BUFFER_SIZE];
+static struct YRingBuffer _pcm_frame_rb;
+static char pcm_frames[_PCM_FRAME_BUFFER_SIZE];
+
 static void _pcm_frame_rb_enter_critical(void)
 {
-	yiis_dma_disable_interrupts(YIIS_2_CTRL, YIIS_DMA_DIRECTION_TX);
+	yiis_dma_disable_interrupts(yaudio_iis_ctrl, YIIS_DMA_DIRECTION_RX);
+	yiis_dma_disable_interrupts(yaudio_iis_ctrl, YIIS_DMA_DIRECTION_TX);
 }
 
 static void _pcm_frame_rb_leave_critical(void)
 {
-	yiis_dma_enable_interrupts(YIIS_2_CTRL, YIIS_DMA_DIRECTION_TX);
+	yiis_dma_enable_interrupts(yaudio_iis_ctrl, YIIS_DMA_DIRECTION_RX);
+	yiis_dma_enable_interrupts(yaudio_iis_ctrl, YIIS_DMA_DIRECTION_TX);
 }
 
 static void _clear_audio_player_status(struct yaudio_player *player)
@@ -181,6 +188,23 @@ para_err:
 	return ret;
 }
 
+static size_t _drwav_write_proc(void *pUserData, const void *pData, size_t bytesToWrite)
+{
+	//YAUDIO_DBG("enter _drwav_write_proc(pUserData[0x%08X], pData[0x%08X], bytesToWrite[%d])\n",
+	//			pUserData, pData, bytesToWrite);
+	size_t ret = 0;
+	if (pUserData == NULL || pData == NULL) {
+		goto para_err;
+	}
+	struct yfs_file *fp = (struct yfs_file *)(pUserData);
+	ret = yfs_fwrite(YFS_Data, fp, pData, bytesToWrite);
+	//YAUDIO_DBG("yfs_fread returns [%d]\n", ret);
+
+para_err:
+	//YAUDIO_DBG("leave _drwav_write_proc, ret[%d]\n", ret);
+	return ret;
+}
+
 static drwav_bool32 _drwav_seek_proc(void *pUserData, int offset, drwav_seek_origin origin)
 {
 	//YAUDIO_DBG("enter _drwav_seek_proc(pUserData[0x%08X], offset[%ld], origin[%d])\n",
@@ -263,21 +287,20 @@ para_err:
 static int _yaudio_player_task(void *para)
 {
 	struct yaudio_player *yplayer = (struct yaudio_player *)para;
-
 	struct yaudio_player_command cmd;
 
 #if (YAUDIO_PLAYER_WITH_DR_LIBS == 1)
-	drwav_uint64 pcm_frame_read;
-	uint32_t frames_num_2_read;
+	drwav_uint64 pcm_frame_processed;
+	uint32_t pcm_frame_2_process;
 #elif (YAUDIO_PLAYER_WITH_LIBOPUS == 1)
-	int pcm_frame_read;
-	int frames_num_2_read;
+	int pcm_frame_processed;
+	int pcm_frame_2_process;
 #endif
 
-	uint32_t pcm_data_read_times_l;
-	uint32_t pcm_data_read_times_h;
-	uint32_t pcm_data_wait_times_l;
-	uint32_t pcm_data_wait_times_h;
+	uint32_t pcm_data_io_times_l;
+	uint32_t pcm_data_io_times_h;
+	uint32_t pcm_data_io_wait_times_l;
+	uint32_t pcm_data_io_wait_times_h;
 
 	_clear_audio_player_status(yplayer);
 
@@ -288,6 +311,10 @@ static int _yaudio_player_task(void *para)
 			case YAUDIO_PLAYER_CMD_PLAY:
 				yplayer->status = YAUDIO_PLAYER_STATUS_PLAYING;
 				YAUDIO_DBG("Receive cmd: play\n");
+				break;
+			case YAUDIO_PLAYER_CMD_RECORD:
+				yplayer->status = YAUDIO_PLAYER_STATUS_RECORDING;
+				YAUDIO_DBG("Receive cmd: record\n");
 				break;
 			case YAUDIO_PLAYER_CMD_PAUSE:
 				yplayer->status = YAUDIO_PLAYER_STATUS_PAUSED;
@@ -337,48 +364,86 @@ static int _yaudio_player_task(void *para)
 				_yaudio_file_is_open = 0;
 				YAUDIO_DBG("File[%s] closed\n", yplayer->audio_file);
 
-				yiis_dma_end_tx(YIIS_2_CTRL);
-				yiis_deinit(YIIS_2_CTRL);
+				yiis_dma_end(yaudio_iis_ctrl, YIIS_DMA_DIRECTION_RX);
+				yiis_dma_end(yaudio_iis_ctrl, YIIS_DMA_DIRECTION_TX);
+				yiis_deinit(yaudio_iis_ctrl);
 
 				YAUDIO_DBG("pcm data read times: %d:%d\n",
-							pcm_data_read_times_h, pcm_data_read_times_l);
+							pcm_data_io_times_h, pcm_data_io_times_l);
 				YAUDIO_DBG("pcm data wait times: %d:%d\n",
-							pcm_data_wait_times_h, pcm_data_wait_times_l);
+							pcm_data_io_wait_times_h, pcm_data_io_wait_times_l);
 #if (IIS_DMA_WAIT_STATICSTIC == 1)
 				YAUDIO_DBG("dma data wait times: %d:%d\n",
-							YIIS_2_CTRL->dma_buffer_not_ready_h,
-							YIIS_2_CTRL->dma_buffer_not_ready_l);
+							yaudio_iis_ctrl->dma_buffer_not_ready_h,
+							yaudio_iis_ctrl->dma_buffer_not_ready_l);
 #endif
 			}
-		} else if (yplayer->status == YAUDIO_PLAYER_STATUS_PLAYING) {
+		} else if (yplayer->status == YAUDIO_PLAYER_STATUS_PLAYING
+				|| yplayer->status == YAUDIO_PLAYER_STATUS_RECORDING) {
 			if (!_yaudio_file_is_open) {
-				int status = yfs_fopen(YFS_Data,
-										&_yaudio_file,
-										yplayer->audio_file,
-										YFS_O_RDONLY);
+				int status;
+				if (yplayer->status == YAUDIO_PLAYER_STATUS_PLAYING) {
+					status = yfs_fopen(YFS_Data,
+									&_yaudio_file,
+									yplayer->audio_file,
+									YFS_O_RDONLY);
+				} else if (yplayer->status == YAUDIO_PLAYER_STATUS_RECORDING) {
+					status = yfs_fopen(YFS_Data,
+									&_yaudio_file,
+									yplayer->audio_file,
+									YFS_O_WRONLY | YFS_O_EXCL | YFS_O_CREAT);
+				} else {
+					status = -1;
+				}
 
 				if (status == 0) {
 					YAUDIO_DBG("File[%s] open ok\n", yplayer->audio_file);
 #if (YAUDIO_PLAYER_WITH_LIBOPUS == 1)
-					_ogg_file = op_open_callbacks(&_yaudio_file,
-												&_opus_file_cbs_on_yfs,
-											NULL, 0, NULL);
-					if (_ogg_file != NULL) {
-						/* Open ogg file ok */
-						_yaudio_file_is_open = 1;
-						YAUDIO_DBG("Open ogg file [%s] OK\n", yplayer->audio_file);
+					if (yplayer->status == YAUDIO_PLAYER_STATUS_PLAYING) {
+						_ogg_file = op_open_callbacks(&_yaudio_file,
+													&_opus_file_cbs_on_yfs,
+												NULL, 0, NULL);
+						if (_ogg_file != NULL) {
+							/* Open ogg file ok */
+							_yaudio_file_is_open = 1;
+							YAUDIO_DBG("Open ogg file [%s] OK\n", yplayer->audio_file);
+						} else {
+							YAUDIO_DBG("Open ogg file [%s] failed\n", yplayer->audio_file);
+							yfs_fclose(YFS_Data, &_yaudio_file);
+							yplayer->status = YAUDIO_PLAYER_STATUS_IDLE;
+						}
+					} else if (yplayer->status == YAUDIO_PLAYER_STATUS_RECORDING) {
+						/* Not implemented */
 					} else {
-						YAUDIO_DBG("Open ogg file [%s] failed\n", yplayer->audio_file);
-						yfs_fclose(YFS_Data, &_yaudio_file);
-						yplayer->status = YAUDIO_PLAYER_STATUS_IDLE;
+						/* Error */
 					}
 #elif (YAUDIO_PLAYER_WITH_DR_LIBS == 1)
-					if (drwav_init(&_drwav_obj,
-									_drwav_read_proc,
-									_drwav_seek_proc,
-									_drwav_tell_proc,
-									&_yaudio_file,
-									NULL) == DRWAV_TRUE) {
+					drwav_bool32 init_result;
+					if (yplayer->status == YAUDIO_PLAYER_STATUS_PLAYING) {
+						init_result = drwav_init(&_drwav_obj,
+												_drwav_read_proc,
+												_drwav_seek_proc,
+												_drwav_tell_proc,
+												&_yaudio_file,
+												NULL);
+					} else if (yplayer->status == YAUDIO_PLAYER_STATUS_RECORDING) {
+						drwav_data_format fmt;
+						fmt.container = drwav_container_riff;
+						fmt.format = DR_WAVE_FORMAT_PCM;
+						fmt.channels = YAUDIO_PLAYER_DEFAULT_RECORDING_CHANNEL;
+						fmt.sampleRate = YAUDIO_PLAYER_DEFAULT_RECORDING_SAMPLING_RATE;
+						fmt.bitsPerSample = YAUDIO_PLAYER_DEFAULT_RECORDING_BIT_DEPTH;
+						init_result = drwav_init_write(&_drwav_obj,
+													&fmt,
+													_drwav_write_proc,
+													_drwav_seek_proc,
+													&_yaudio_file,
+													NULL);
+					} else {
+						init_result = DRWAV_FALSE;
+					}
+
+					if (init_result == DRWAV_TRUE) {
 						_yaudio_file_is_open = 1;
 						YAUDIO_DBG("Open wav file [%s] OK\n", yplayer->audio_file);
 					} else {
@@ -390,17 +455,37 @@ static int _yaudio_player_task(void *para)
 
 					if (_yaudio_file_is_open) {
 						_clear_audio_player_status(yplayer);
+						enum yiis_dma_direction dir = YIIS_DMA_DIRECTION_UNKNOWN;
 
 #if (YAUDIO_PLAYER_WITH_LIBOPUS == 1)
-						yplayer->sampling_rate = 48000;
-						yplayer->channel = op_channel_count(_ogg_file, -1);
-						yplayer->audio_bit_depth = 16;
-						yplayer->sample_num = op_pcm_total(_ogg_file, -1);
+						if (yplayer->status == YAUDIO_PLAYER_STATUS_PLAYING) {
+							yplayer->sampling_rate = 48000;
+							yplayer->channel = op_channel_count(_ogg_file, -1);
+							yplayer->audio_bit_depth = 16;
+							yplayer->sample_num = op_pcm_total(_ogg_file, -1);
+						} else if (yplayer->status == YAUDIO_PLAYER_STATUS_RECORDING) {
+							/* Not implemented */
+						} else {
+							/* Error */
+						}
 #elif (YAUDIO_PLAYER_WITH_DR_LIBS == 1)
-						yplayer->sampling_rate = _drwav_obj.sampleRate;
-						yplayer->channel = _drwav_obj.channels;
-						yplayer->audio_bit_depth = _drwav_obj.bitsPerSample;
-						yplayer->sample_num = _drwav_obj.totalPCMFrameCount;
+						if (yplayer->status == YAUDIO_PLAYER_STATUS_PLAYING) {
+							yplayer->sampling_rate = _drwav_obj.sampleRate;
+							yplayer->channel = _drwav_obj.channels;
+							yplayer->audio_bit_depth = _drwav_obj.bitsPerSample;
+							yplayer->sample_num = _drwav_obj.totalPCMFrameCount;
+							yaudio_iis_ctrl = YIIS_2_CTRL;
+							dir = YIIS_DMA_DIRECTION_TX;
+						} else if (yplayer->status == YAUDIO_PLAYER_STATUS_RECORDING) {
+							yplayer->sampling_rate = YAUDIO_PLAYER_DEFAULT_RECORDING_SAMPLING_RATE;
+							yplayer->channel = YAUDIO_PLAYER_DEFAULT_RECORDING_CHANNEL;
+							yplayer->audio_bit_depth = YAUDIO_PLAYER_DEFAULT_RECORDING_BIT_DEPTH;
+							yplayer->sample_num = 0;
+							yaudio_iis_ctrl = YIIS_3_CTRL;
+							dir = YIIS_DMA_DIRECTION_RX;
+						} else {
+							/* Error */
+						}
 #endif
 
 						YAUDIO_DBG("Audio info:\n");
@@ -412,13 +497,14 @@ static int _yaudio_player_task(void *para)
 									(uint32_t)(yplayer->sample_num >> 32),
 									(uint32_t)(yplayer->sample_num & 0xFFFFFFFF));
 
-						pcm_data_read_times_h = 0;
-						pcm_data_read_times_l = 0;
-						pcm_data_wait_times_h = 0;
-						pcm_data_wait_times_l = 0;
+						pcm_data_io_times_h = 0;
+						pcm_data_io_times_l = 0;
+						pcm_data_io_wait_times_h = 0;
+						pcm_data_io_wait_times_l = 0;
 
-						yiis_init(YIIS_2_CTRL);
-						if (yiis_config(YIIS_2_CTRL, yplayer->sampling_rate,
+						yiis_init(yaudio_iis_ctrl);
+						if (yiis_config(yaudio_iis_ctrl, dir,
+									yplayer->sampling_rate,
 									yplayer->channel, yplayer->audio_bit_depth,
 									IIS_AUDIO_STANDARD_PHILIPS_STANDARD) != 0) {
 							YAUDIO_DBG("iis dma config failed\n");
@@ -432,8 +518,8 @@ static int _yaudio_player_task(void *para)
 								yplayer->transfer_bit_depth = 32;
 							}
 
-							yiis_dma_start_tx(YIIS_2_CTRL, &_pcm_frame_rb,
-										_pcm_frame_rb.data, YRingBufferGetItemSize(&_pcm_frame_rb));
+							yiis_dma_start(yaudio_iis_ctrl, dir,
+										&_pcm_frame_rb, YRingBufferGetItemSize(&_pcm_frame_rb));
 						}
 					}
 				} else {
@@ -442,88 +528,136 @@ static int _yaudio_player_task(void *para)
 				}
 			} else {
 				/* Audio file is open, read and play */
-				frames_num_2_read = sizeof(pcm_frames)
+				pcm_frame_2_process = sizeof(pcm_frames)
 									/ (yplayer->transfer_bit_depth / 8)
 									/ yplayer->channel;
 #if (YAUDIO_PLAYER_WITH_LIBOPUS == 1)
-				int frame_read_once;
-				pcm_frame_read = 0;
-				while (pcm_frame_read < frames_num_2_read) {
-					frame_read_once = op_read_stereo(_ogg_file,
-													pcm_frames + pcm_frame_read * (yplayer->transfer_bit_depth / 8) * yplayer->channel,
-													sizeof(pcm_frames) - pcm_frame_read * (yplayer->transfer_bit_depth / 8) * yplayer->channel);
-					if (frame_read_once > 0) {
-						pcm_frame_read += frame_read_once;
-					} else if (frame_read_once == 0){
-						/* EOF */
-						YAUDIO_DBG("EOF reached\n");
-						break;
-					} else {
-						/* Error */
-						yplayer->status = YAUDIO_PLAYER_STATUS_IDLE;
-						YAUDIO_DBG("File read error\n");
+				if (yplayer->status == YAUDIO_PLAYER_STATUS_PLAYING) {
+					int frame_read_once;
+					pcm_frame_processed = 0;
+					while (pcm_frame_processed < pcm_frame_2_process) {
+						frame_read_once = op_read_stereo(_ogg_file,
+														pcm_frames + pcm_frame_processed * (yplayer->transfer_bit_depth / 8) * yplayer->channel,
+														sizeof(pcm_frames) - pcm_frame_processed * (yplayer->transfer_bit_depth / 8) * yplayer->channel);
+						if (frame_read_once > 0) {
+							pcm_frame_processed += frame_read_once;
+						} else if (frame_read_once == 0){
+							/* EOF */
+							YAUDIO_DBG("EOF reached\n");
+							break;
+						} else {
+							/* Error */
+							yplayer->status = YAUDIO_PLAYER_STATUS_IDLE;
+							YAUDIO_DBG("File read error\n");
+						}
 					}
 				}
 #elif (YAUDIO_PLAYER_WITH_DR_LIBS == 1)
-				if (yplayer->transfer_bit_depth == 16) {
-					pcm_frame_read = drwav_read_pcm_frames_s16(&_drwav_obj,
-															frames_num_2_read,
-															pcm_frames);
-				} else if (yplayer->transfer_bit_depth == 24) {
-					pcm_frame_read = drwav_read_pcm_frames_s32(&_drwav_obj,
-															frames_num_2_read,
-															pcm_frames);
-				} else if (yplayer->transfer_bit_depth == 32) {
-					pcm_frame_read = drwav_read_pcm_frames_s32(&_drwav_obj,
-															frames_num_2_read,
-															pcm_frames);
-				}
-				if (pcm_frame_read < frames_num_2_read) {
-					YAUDIO_DBG("EOF reached\n");
+				if (yplayer->status == YAUDIO_PLAYER_STATUS_PLAYING) {
+					if (yplayer->transfer_bit_depth == 16) {
+						pcm_frame_processed = drwav_read_pcm_frames_s16(&_drwav_obj,
+																pcm_frame_2_process,
+																pcm_frames);
+					} else if (yplayer->transfer_bit_depth == 24) {
+						pcm_frame_processed = drwav_read_pcm_frames_s32(&_drwav_obj,
+																pcm_frame_2_process,
+																pcm_frames);
+					} else if (yplayer->transfer_bit_depth == 32) {
+						pcm_frame_processed = drwav_read_pcm_frames_s32(&_drwav_obj,
+																pcm_frame_2_process,
+																pcm_frames);
+					}
+					if (pcm_frame_processed < pcm_frame_2_process) {
+						YAUDIO_DBG("EOF reached\n");
+					}
+					//YAUDIO_DBG("Read %ld pcm frames, expected %d\n", (uint32_t)pcm_frame_processed, _PCM_FRAME_COUNT_ONCE);
+					if (pcm_frame_processed == pcm_frame_2_process) {
+					} else if (pcm_frame_processed < pcm_frame_2_process) {
+						/* EOF reached */
+						memset(pcm_frames + pcm_frame_processed * (yplayer->transfer_bit_depth / 8) * yplayer->channel,
+								0x00,
+								(pcm_frame_2_process - pcm_frame_processed) * (yplayer->transfer_bit_depth / 8) * yplayer->channel);
+
+						yplayer->status = YAUDIO_PLAYER_STATUS_IDLE;
+					}
+					yplayer->sample_played += pcm_frame_processed;
+
+					pcm_data_io_times_l++;
+					if (pcm_data_io_times_l == 0) {
+						pcm_data_io_times_h++;
+					}
+
+					if (yplayer->transfer_bit_depth == 32) {
+						uint32_t index;
+						uint16_t *part1, *part2;
+						uint16_t tmp_v;
+						for (index = 0; index < sizeof(pcm_frames); index += yplayer->transfer_bit_depth / 8) {
+							part1 = pcm_frames + index;
+							part2 = pcm_frames + index + sizeof(*part1);
+							tmp_v = *part1;
+							*part1 = *part2;
+							*part2 = tmp_v;
+						}
+					}
 				}
 #endif
-				//YAUDIO_DBG("Read %ld pcm frames, expected %d\n", (uint32_t)pcm_frame_read, _PCM_FRAME_COUNT_ONCE);
-				if (pcm_frame_read == frames_num_2_read) {
-				} else if (pcm_frame_read < frames_num_2_read) {
-					/* EOF reached */
-					memset(pcm_frames + pcm_frame_read * (yplayer->transfer_bit_depth / 8) * yplayer->channel,
-							0x00,
-							(frames_num_2_read - pcm_frame_read) * (yplayer->transfer_bit_depth / 8) * yplayer->channel);
 
-					yplayer->status = YAUDIO_PLAYER_STATUS_IDLE;
-				}
-
-				yplayer->sample_played += pcm_frame_read;
-
-				pcm_data_read_times_l++;
-				if (pcm_data_read_times_l == 0) {
-					pcm_data_read_times_h++;
-				}
-
-				if (yplayer->transfer_bit_depth == 32) {
-					uint32_t index;
-					uint16_t *part1, *part2;
-					uint16_t tmp_v;
-					for (index = 0; index < sizeof(pcm_frames); index += yplayer->transfer_bit_depth / 8) {
-						part1 = pcm_frames + index;
-						part2 = pcm_frames + index + sizeof(*part1);
-						tmp_v = *part1;
-						*part1 = *part2;
-						*part2 = tmp_v;
+				if (yplayer->status == YAUDIO_PLAYER_STATUS_PLAYING) {
+					yiis_dma_restore(yaudio_iis_ctrl, YIIS_DMA_DIRECTION_TX);
+					while (yiis_transfer_data(yaudio_iis_ctrl, (uint8_t *)pcm_frames, sizeof(pcm_frames)) < 0) {
+						//YAUDIO_DBG("write audio data failed, wait to retry...\n");
+						pcm_data_io_wait_times_l++;
+						if (pcm_data_io_wait_times_l == 0) {
+							pcm_data_io_wait_times_h++;
+						}
+						yos_task_delay(1);
 					}
-				}
-				yiis_dma_restore(YIIS_2_CTRL, YIIS_DMA_DIRECTION_TX);
-				while (yiis_transfer_data(YIIS_2_CTRL, (uint8_t *)pcm_frames, sizeof(pcm_frames)) < 0) {
-					//YAUDIO_DBG("write audio data failed, wait to retry...\n");
-					pcm_data_wait_times_l++;
-					if (pcm_data_wait_times_l == 0) {
-						pcm_data_wait_times_h++;
+				} else if (yplayer->status == YAUDIO_PLAYER_STATUS_RECORDING) {
+					yiis_dma_restore(yaudio_iis_ctrl, YIIS_DMA_DIRECTION_RX);
+					while (yiis_receive_data(yaudio_iis_ctrl, (uint8_t *)pcm_frames, sizeof(pcm_frames)) < 0) {
+						//YAUDIO_DBG("write audio data failed, wait to retry...\n");
+						pcm_data_io_wait_times_l++;
+						if (pcm_data_io_wait_times_l == 0) {
+							pcm_data_io_wait_times_h++;
+						}
+						yos_task_delay(1);
 					}
-					yos_task_delay(1);
+#if (YAUDIO_PLAYER_WITH_LIBOPUS == 1)
+#elif (YAUDIO_PLAYER_WITH_DR_LIBS == 1)
+					if (yplayer->transfer_bit_depth == 32) {
+						uint32_t index;
+						uint16_t *part1, *part2;
+						uint16_t tmp_v;
+						for (index = 0; index < sizeof(pcm_frames); index += yplayer->transfer_bit_depth / 8) {
+							part1 = pcm_frames + index;
+							part2 = pcm_frames + index + sizeof(*part1);
+							tmp_v = *part1;
+							*part1 = *part2;
+							*part2 = tmp_v;
+						}
+					}
+					pcm_frame_processed = drwav_write_pcm_frames(&_drwav_obj,
+																pcm_frame_2_process,
+																pcm_frames);
+					yplayer->sample_played += pcm_frame_processed;
+					pcm_data_io_times_l++;
+					if (pcm_data_io_times_l == 0) {
+						pcm_data_io_times_h++;
+					}
+					if (pcm_frame_processed < pcm_frame_2_process) {
+						YAUDIO_DBG("Writing pcm frames error: [%u] expected but [%u:%u] written\n",
+									pcm_frame_2_process,
+									(uint32_t)(pcm_frame_processed >> 32),
+									(uint32_t)(pcm_frame_processed & 0xFFFFFFFF));
+					}
+#endif
+				} else {
+					/* Error */
 				}
 			}
 		} else if (yplayer->status == YAUDIO_PLAYER_STATUS_PAUSED) {
-			yiis_dma_pause(YIIS_2_CTRL, YIIS_DMA_DIRECTION_TX);
+			yiis_dma_pause(yaudio_iis_ctrl, YIIS_DMA_DIRECTION_TX);
+			yiis_dma_pause(yaudio_iis_ctrl, YIIS_DMA_DIRECTION_RX);
 		} else {
 
 		}
@@ -601,6 +735,18 @@ int yaudio_play(void)
 	int ret = -1;
 	struct yaudio_player_command cmd;
 	cmd.cmd = YAUDIO_PLAYER_CMD_PLAY;
+	if (yqueue_try_send_items(&_yaudio_cmd_queue, &cmd, 1) == 1) {
+		ret = 0;
+	}
+
+	return ret;
+}
+
+int yaudio_record(void)
+{
+	int ret = -1;
+	struct yaudio_player_command cmd;
+	cmd.cmd = YAUDIO_PLAYER_CMD_RECORD;
 	if (yqueue_try_send_items(&_yaudio_cmd_queue, &cmd, 1) == 1) {
 		ret = 0;
 	}

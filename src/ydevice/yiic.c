@@ -30,7 +30,7 @@
  * 0:		Standard Speed(~100KHz)
  * 1:		Fast Speed(~400KHz)
  */
-#define DEFAULE_IIC_SPEED					1
+#define DEFAULE_IIC_SPEED					0
 
 static struct ymutex _yiic_mutex;
 
