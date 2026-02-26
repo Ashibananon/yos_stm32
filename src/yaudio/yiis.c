@@ -364,6 +364,8 @@ int yiis_config(struct yiis_ctrl *iis, enum yiis_dma_direction dir,
 		/* Wait for PLLI2S not ready */
 	}
 	rcc_plli2s_config(target_setting->PLLI2SN, target_setting->PLLI2SR);
+	/* Set PLLI2SM */
+	RCC_PLLI2SCFGR |= 25;
 	rcc_osc_on(RCC_PLLI2S);
 	rcc_wait_for_osc_ready(RCC_PLLI2S);
 

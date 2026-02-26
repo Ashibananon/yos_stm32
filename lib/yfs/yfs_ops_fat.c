@@ -79,7 +79,6 @@ static int yfs_stat_fat(struct yfs_data *data, struct yfs_fs_stat *stat)
 
 	ret = 0;
 
-fat_not_ready:
 para_err:
 	return ret;
 }
