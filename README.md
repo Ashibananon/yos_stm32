@@ -209,7 +209,7 @@ And you can find each task functions which are as below:
 ## About cmdline（cmdlineについて）
 USART settings are like below:
 
-- Baudrate: 115200 8N1
+- Baudrate: 500000 8N1
 - Flow control: None
 - Newline character（改行コード）: LF
 
