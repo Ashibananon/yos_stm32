@@ -85,6 +85,7 @@ struct yiis_ctrl {
 
 	uint32_t sampling_rate;
 	uint8_t channels;
+	uint8_t channel_length_bits;
 	uint8_t bit_depth;
 	uint8_t transfer_bit_width;
 	enum IIS_AUDIO_STANDARD audio_standard;
@@ -111,7 +112,7 @@ int yiis_deinit(struct yiis_ctrl *iis);
 
 int yiis_config(struct yiis_ctrl *iis, enum yiis_dma_direction dir,
 				uint32_t sampling_rate, uint8_t channels, uint8_t bit_depth,
-				enum IIS_AUDIO_STANDARD audio_standard);
+				uint8_t channel_length_bit, enum IIS_AUDIO_STANDARD audio_standard);
 
 int yiis_dma_start(struct yiis_ctrl *iis, enum yiis_dma_direction dir,
 					struct YRingBuffer *rb, uint16_t data_length);

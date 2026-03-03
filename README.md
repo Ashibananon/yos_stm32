@@ -4,10 +4,10 @@ I've tried to transport [YOS on ATmega328P](https://github.com/Ashibananon/yos) 
 前に作っている[ATmega328Pで動いているYOS](https://github.com/Ashibananon/yos)をSTM32に移植してみます。
 
 ## Hardware
-STM32F401RCT6 MCU
+STM32F411CEU6 MCU
 
 ### PIN Connection（PIN接続）
-| STM32F401RCT6 PIN | Function（機能） | Connect to Device（接続先） | PIN of connected device（接続先PIN） |
+| STM32F411CEU6 PIN | Function（機能） | Connect to Device（接続先） | PIN of connected device（接続先PIN） |
 | --- | --- | --- | --- |
 | PA10/RX | UART Receive  | Serial/USB-Serial module | TX |
 | PA9/TX | UART Transmit | Serial/USB-Serial module | RX |
@@ -31,11 +31,11 @@ STM32F401RCT6 MCU
 
 
 
-### STM32F401RCT6
+### STM32F411CEU6
 - ARM Cortex M4
-- 84 MHz CPU
-- 64 KB SRAM
-- 256 KB Flash
+- 100 MHz CPU
+- 128 KB SRAM
+- 512 KB Flash
 
 ## Development Environment （開発環境）
 - VS Code with PlatformIO extension
@@ -209,7 +209,7 @@ And you can find each task functions which are as below:
 ## About cmdline（cmdlineについて）
 USART settings are like below:
 
-- Baudrate: 115200 8N1
+- Baudrate: 500000 8N1
 - Flow control: None
 - Newline character（改行コード）: LF
 
@@ -411,9 +411,9 @@ Example（例）:
   コマンド[si]
 
 		STM32> si
-		MCU: STM32F401RCT6 Max Freq: 84000000 Hz
-		Flash: 262144 Bytes
-		RAM: 65536 Bytes
+		MCU: STM32F411CEU6 Max Freq: 96000000 Hz
+		Flash: 524288 Bytes
+		RAM: 131072 Bytes
 		sz char=1
 		sz short=2
 		sz int=4

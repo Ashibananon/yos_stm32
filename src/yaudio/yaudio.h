@@ -36,9 +36,10 @@ extern "C" {
 #define YAUDIO_FILE_NAME_MAX_LENGTH		128
 #define YAUDIO_PLAYER_DEFAULT_VOLUME	50
 
-#define YAUDIO_PLAYER_DEFAULT_RECORDING_SAMPLING_RATE		(8000)
-#define YAUDIO_PLAYER_DEFAULT_RECORDING_BIT_DEPTH			(32)
+#define YAUDIO_PLAYER_DEFAULT_RECORDING_SAMPLING_RATE		(22050)
+#define YAUDIO_PLAYER_DEFAULT_RECORDING_BIT_DEPTH			(16)
 #define YAUDIO_PLAYER_DEFAULT_RECORDING_CHANNEL				(2)
+#define YAUDIO_PLAYER_DEFAULT_RECORDING_CHANNEL_LENGTH_BIT	(32)
 
 enum YAUDIO_PLAYER_STATUS {
 	YAUDIO_PLAYER_STATUS_IDLE,
@@ -57,6 +58,7 @@ struct yaudio_player {
 	uint8_t volume_l;
 	uint8_t volume_r;
 	uint8_t channel;
+	uint8_t channel_length_bits;
 	uint8_t audio_bit_depth;
 	uint8_t transfer_bit_depth;
 	uint64_t sample_num;

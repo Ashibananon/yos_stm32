@@ -33,7 +33,7 @@ static struct yiis_ctrl *yaudio_iis_ctrl = NULL;
  * Buffer size must be the number divisible by both the channel num
  * and byte num of bit depth
  */
-#define _PCM_FRAME_BUFFER_SIZE			(1200)
+#define _PCM_FRAME_BUFFER_SIZE			(4096)
 #define _PCM_FRAME_BUFFER_COUNT			4
 static char _pcm_frames_buffer[_PCM_FRAME_BUFFER_COUNT][_PCM_FRAME_BUFFER_SIZE];
 static struct YRingBuffer _pcm_frame_rb;
@@ -368,9 +368,9 @@ static int _yaudio_player_task(void *para)
 				yiis_dma_end(yaudio_iis_ctrl, YIIS_DMA_DIRECTION_TX);
 				yiis_deinit(yaudio_iis_ctrl);
 
-				YAUDIO_DBG("pcm data read times: %d:%d\n",
+				YAUDIO_DBG("pcm data io times: %d:%d\n",
 							pcm_data_io_times_h, pcm_data_io_times_l);
-				YAUDIO_DBG("pcm data wait times: %d:%d\n",
+				YAUDIO_DBG("pcm data io wait times: %d:%d\n",
 							pcm_data_io_wait_times_h, pcm_data_io_wait_times_l);
 #if (IIS_DMA_WAIT_STATICSTIC == 1)
 				YAUDIO_DBG("dma data wait times: %d:%d\n",
@@ -472,6 +472,7 @@ static int _yaudio_player_task(void *para)
 						if (yplayer->status == YAUDIO_PLAYER_STATUS_PLAYING) {
 							yplayer->sampling_rate = _drwav_obj.sampleRate;
 							yplayer->channel = _drwav_obj.channels;
+							yplayer->channel_length_bits = _drwav_obj.bitsPerSample;
 							yplayer->audio_bit_depth = _drwav_obj.bitsPerSample;
 							yplayer->sample_num = _drwav_obj.totalPCMFrameCount;
 							yaudio_iis_ctrl = YIIS_2_CTRL;
@@ -479,6 +480,7 @@ static int _yaudio_player_task(void *para)
 						} else if (yplayer->status == YAUDIO_PLAYER_STATUS_RECORDING) {
 							yplayer->sampling_rate = YAUDIO_PLAYER_DEFAULT_RECORDING_SAMPLING_RATE;
 							yplayer->channel = YAUDIO_PLAYER_DEFAULT_RECORDING_CHANNEL;
+							yplayer->channel_length_bits = YAUDIO_PLAYER_DEFAULT_RECORDING_CHANNEL_LENGTH_BIT;
 							yplayer->audio_bit_depth = YAUDIO_PLAYER_DEFAULT_RECORDING_BIT_DEPTH;
 							yplayer->sample_num = 0;
 							yaudio_iis_ctrl = YIIS_3_CTRL;
@@ -491,6 +493,7 @@ static int _yaudio_player_task(void *para)
 						YAUDIO_DBG("Audio info:\n");
 						//YAUDIO_DBG("  format: [%d]\n", _drwav_obj.translatedFormatTag);
 						YAUDIO_DBG("  channels: [%d]\n", yplayer->channel);
+						YAUDIO_DBG("  channels length: [%d]\n", yplayer->channel_length_bits);
 						YAUDIO_DBG("  sample rate: [%d]\n", yplayer->sampling_rate);
 						YAUDIO_DBG("  bit depth: [%d]\n", yplayer->audio_bit_depth);
 						YAUDIO_DBG("  sample num: [%u][%u]\n",
@@ -506,6 +509,7 @@ static int _yaudio_player_task(void *para)
 						if (yiis_config(yaudio_iis_ctrl, dir,
 									yplayer->sampling_rate,
 									yplayer->channel, yplayer->audio_bit_depth,
+									yplayer->channel_length_bits,
 									IIS_AUDIO_STANDARD_PHILIPS_STANDARD) != 0) {
 							YAUDIO_DBG("iis dma config failed\n");
 							yplayer->status = YAUDIO_PLAYER_STATUS_IDLE;
@@ -624,6 +628,7 @@ static int _yaudio_player_task(void *para)
 					}
 #if (YAUDIO_PLAYER_WITH_LIBOPUS == 1)
 #elif (YAUDIO_PLAYER_WITH_DR_LIBS == 1)
+#if 0
 					if (yplayer->transfer_bit_depth == 32) {
 						uint32_t index;
 						uint16_t *part1, *part2;
@@ -636,6 +641,7 @@ static int _yaudio_player_task(void *para)
 							*part2 = tmp_v;
 						}
 					}
+#endif
 					pcm_frame_processed = drwav_write_pcm_frames(&_drwav_obj,
 																pcm_frame_2_process,
 																pcm_frames);

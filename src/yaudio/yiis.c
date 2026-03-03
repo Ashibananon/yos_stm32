@@ -224,6 +224,9 @@ int yiis_init(struct yiis_ctrl *iis)
 	if (iis == NULL) {
 		goto para_err;
 	}
+	if (iis->iis_gpio_init != NULL) {
+		iis->iis_gpio_init(1);
+	}
 
 	ret = 0;
 
@@ -273,7 +276,7 @@ para_err:
 
 int yiis_config(struct yiis_ctrl *iis, enum yiis_dma_direction dir,
 				uint32_t sampling_rate, uint8_t channels, uint8_t bit_depth,
-				enum IIS_AUDIO_STANDARD audio_standard)
+				uint8_t channel_length_bit, enum IIS_AUDIO_STANDARD audio_standard)
 {
 	int ret = -1;
 	enum IIS_CLOCK_TARGET_HZ iis_smr;
@@ -282,11 +285,15 @@ int yiis_config(struct yiis_ctrl *iis, enum yiis_dma_direction dir,
 	if (iis == NULL || (dir != YIIS_DMA_DIRECTION_RX && dir != YIIS_DMA_DIRECTION_TX)) {
 		goto para_err;
 	}
+	if (channel_length_bit != 16 && channel_length_bit != 32) {
+		goto para_err;
+	}
 
+	iis->sampling_rate = 0;
+	iis->channels = 0;
+	iis->channel_length_bits = channel_length_bit;
 	iis->bit_depth = 0;
 	iis->transfer_bit_width = 8;
-	iis->channels = 0;
-	iis->sampling_rate = 0;
 
 	if (iis == NULL || sampling_rate == 0 || channels == 0 || bit_depth == 0
 		|| audio_standard <= IIS_AUDIO_STANDARD_INVALID
@@ -295,7 +302,11 @@ int yiis_config(struct yiis_ctrl *iis, enum yiis_dma_direction dir,
 	}
 
 	if (bit_depth == 16) {
-		iis_dfmt = IIS_DATA_FORMAT_16BIT;
+		if (iis->channel_length_bits == 16) {
+			iis_dfmt = IIS_DATA_FORMAT_16BIT;
+		} else if (iis->channel_length_bits == 32) {
+			iis_dfmt = IIS_DATA_FORMAT_32BIT;
+		}
 		iis->iis_dma_rx_mem_size = DMA_SxCR_MSIZE_16BIT;
 		iis->iis_dma_rx_peri_size = DMA_SxCR_PSIZE_16BIT;
 		iis->iis_dma_tx_mem_size = DMA_SxCR_MSIZE_16BIT;
@@ -364,6 +375,8 @@ int yiis_config(struct yiis_ctrl *iis, enum yiis_dma_direction dir,
 		/* Wait for PLLI2S not ready */
 	}
 	rcc_plli2s_config(target_setting->PLLI2SN, target_setting->PLLI2SR);
+	/* Set PLLI2SM */
+	RCC_PLLI2SCFGR |= 25;
 	rcc_osc_on(RCC_PLLI2S);
 	rcc_wait_for_osc_ready(RCC_PLLI2S);
 
@@ -404,7 +417,11 @@ int yiis_config(struct yiis_ctrl *iis, enum yiis_dma_direction dir,
 
 	if (bit_depth == 16) {
 		SPI_I2SCFGR(iis->iis_base) |= (SPI_I2SCFGR_DATLEN_16BIT << SPI_I2SCFGR_DATLEN_LSB);
-		SPI_I2SCFGR(iis->iis_base) &= ~SPI_I2SCFGR_CHLEN;
+		if (iis->channel_length_bits == 16) {
+			SPI_I2SCFGR(iis->iis_base) &= ~SPI_I2SCFGR_CHLEN;
+		} else if (iis->channel_length_bits == 32) {
+			SPI_I2SCFGR(iis->iis_base) |= SPI_I2SCFGR_CHLEN;
+		}
 	} else if (bit_depth == 24) {
 		SPI_I2SCFGR(iis->iis_base) |= (SPI_I2SCFGR_DATLEN_24BIT << SPI_I2SCFGR_DATLEN_LSB);
 		SPI_I2SCFGR(iis->iis_base) |= SPI_I2SCFGR_CHLEN;
